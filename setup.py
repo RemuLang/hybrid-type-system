@@ -1,5 +1,4 @@
 from setuptools import setup, find_packages
-from datetime import datetime
 from pathlib import Path
 
 with Path('README.md').open() as readme:
@@ -24,8 +23,10 @@ setup(
     install_requires=[],
     platforms="any",
     classifiers=[
+        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: Implementation :: CPython",
     ],
     zip_safe=False,
