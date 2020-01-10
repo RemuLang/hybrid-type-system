@@ -1,5 +1,5 @@
-from mlftt.tc_state import TCState
-from mlftt.type_encoding import record_of_map, record_of_row, poly_row, empty_row
+from hybridts.tc_state import TCState
+from hybridts.type_encoding import row_of_map, record_of_row, poly_row, empty_row
 
 tctx = {}
 
@@ -18,10 +18,10 @@ assert tcs.infer(x2) == int_t
 
 x3 = tcs.new_var()
 
-r1 = record_of_map({'a': x1, 'b': x3}, empty_row)
+r1 = row_of_map({'a': x1, 'b': x3}, empty_row)
 r1 = record_of_row(r1)
 tho = tcs.new_var()
-r2 = record_of_map({'a': x3}, poly_row(tho))
+r2 = row_of_map({'a': x3}, poly_row(tho))
 r2 = record_of_row(r2)
 tcs.unify(r1, r2)
 print(tcs.infer(r1))

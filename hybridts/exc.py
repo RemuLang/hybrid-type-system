@@ -12,10 +12,6 @@ class UnboundTypeVar(Exception):
         self.var = var
 
 
-class RowFieldMismatch(Exception):
-    field: str
-
-
 class RowFieldDuplicated(Exception):
     def __init__(self, field: str):
         self.field = field

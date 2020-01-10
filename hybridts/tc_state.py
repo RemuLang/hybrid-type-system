@@ -1,6 +1,5 @@
-from mlftt.type_encoding import *
-from mlftt import exc
-from enum import Enum, auto as _auto
+from hybridts.type_encoding import *
+from hybridts import exc
 from collections import ChainMap
 from contextlib import contextmanager
 # noinspection PyUnresolvedReferences
@@ -193,7 +192,7 @@ def make(self: 'TCState', tctx: TypeCtx):
                     #    row2 = only_by1
                     if only_by2:
                         raise RowCheckFailed
-                    return unify(row2, (record_t, record_of_map(only_by1, (row_mono_t,))))
+                    return unify(row2, (record_t, row_of_map(only_by1, (row_mono_t,))))
                 # {only_by1|row1} == {only_by2|row2},
                 # where
                 #   only_by1 \cap only_by2 = \emptyset,
@@ -205,8 +204,8 @@ def make(self: 'TCState', tctx: TypeCtx):
                 #   {only_by1|row} = row2
                 #   {only_by2|row} = row1
                 polyrow = (row_poly_t, new_var())
-                ex2 = (record_t, record_of_map(only_by1, polyrow))
-                ex1 = (record_t, record_of_map(only_by2, polyrow))
+                ex2 = (record_t, row_of_map(only_by1, polyrow))
+                ex1 = (record_t, row_of_map(only_by2, polyrow))
                 unify(row1, ex1)
                 unify(row2, ex2)
 
@@ -226,6 +225,7 @@ def make(self: 'TCState', tctx: TypeCtx):
     def redirect_side_effects(place: dict):
         @contextmanager
         def apply():
+            nonlocal tctx
             resume = tctx
             tctx = TransactionMap(place, resume)
             try:

@@ -246,13 +246,13 @@ def visit_check(f: t.Callable[[T], bool]):
     return eval_t
 
 
-def record_from_list(xs: t.List[t.Tuple[str, T]], last: Row) -> Row:
+def row_from_list(xs: t.List[t.Tuple[str, T]], last: Row) -> Row:
     for k, v in xs:
         last = row_cons_t, k, v, last
     return last
 
 
-def record_of_map(d: t.Dict[str, T], last: Row) -> Row:
+def row_of_map(d: t.Dict[str, T], last: Row) -> Row:
     for k, v in d.items():
         last = row_cons_t, k, v, last
     return last
