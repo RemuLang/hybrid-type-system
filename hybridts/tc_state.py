@@ -8,7 +8,6 @@ import typing as t
 
 # noinspection PyUnresolvedReferences
 class TransactionMap(ChainMap):
-
     def __setitem__(self, key, value):
         self.maps[0][key] = value
 
@@ -23,6 +22,11 @@ class RowCheckFailed(Exception):
 def make(self: 'TCState', tctx: TypeCtx):
     self.get_tctx = lambda: tctx
 
+    # fresh variables are guaranteed to be not free due to syntax restriction of forall
+    #  thus, when proceeding unification, freshvar cannot be greater or lesser than
+    #  any other type except another fresh variable.
+    # However, fresh variable can only equal to another by a bidirectional name mapping
+
     def _visit_func(fresh_map: dict, ty):
         tag = ty[0]
         if tag is fresh_t:
@@ -34,9 +38,18 @@ def make(self: 'TCState', tctx: TypeCtx):
         return fresh_map, ty
 
     def fresh(fresh_map, ty):
+        # TODO: more efficient, exit when fresh_map is empty
         return pre_visit(_visit_func)(fresh_map, ty)
 
     self.fresh = fresh
+
+    def inst(type: T) -> T:
+        if type[0] is forall_t:
+            _, ns, t = type
+            return fresh({n: new_var() for n in ns}, t)
+        return type
+
+    self.inst = inst
 
     def new_var():
         vid = len(tctx)
@@ -118,27 +131,37 @@ def make(self: 'TCState', tctx: TypeCtx):
             raise exc.TypeMismatch(lhs, rhs)
         if ltag is var_t and rtag is var_t and lhs[1] == rhs[1]:
             return
-        if ltag is forall_t:
-            return _unify(rhs, lhs)
-        if rtag is forall_t:
-            rhs_matched: Forall = rhs
-            _, ns, poly = rhs_matched
-            fresh_map = {n: new_var() for n in ns}
-            return unify(lhs, fresh(fresh_map, poly))
+
         if ltag is var_t:
             i = lhs[1]
             if occur_in(i, rhs):
                 raise exc.IllFormedType(" a = a -> b")
             tctx[i] = rhs
             return
+
         if rtag is var_t:
             return _unify(rhs, lhs)
 
-        if ltag is fresh_t:
-            raise exc.UnboundTypeVar(lhs[1])
+        if ltag is forall_t and rtag is forall_t:
+            # must be normalized!
+            # don't check here
+            _, ns1, p1 = lhs
+            _, ns2, p2 = rhs
+            if len(ns1) != len(ns2):
+                raise exc.TypeMismatch(lhs, rhs)
 
-        if rtag is fresh_t:
-            raise exc.UnboundTypeVar(rhs[1])
+            # use `if ns1 == ns2` here? my data is immutable, seems
+            # will improve performance?
+            return unify(fresh(dict(zip(ns1, ns2)), p1), p2)
+
+        if ltag is fresh_t and rtag is fresh_t:
+            # there's only one forall context.
+            # Fresh types from other forall types will be freshed to types like
+            #   (t >= bound)
+            # , or
+            #   (t = bound)
+            # , where bound is closed.
+            return lhs[1] == rhs[1]
 
         if ltag is implicit_t and ltag is implicit_t:
             unify(lhs[1], rhs[1])
@@ -149,7 +172,7 @@ def make(self: 'TCState', tctx: TypeCtx):
             return unify(lhs[2], rhs)
 
         if rtag is implicit_t:
-            return _unify(lhs, rhs[2])
+            return unify(lhs, rhs[2])
 
         if ltag is arrow_t and rtag is arrow_t:
             unify(lhs[1], rhs[1])
@@ -192,7 +215,9 @@ def make(self: 'TCState', tctx: TypeCtx):
                     #    row2 = only_by1
                     if only_by2:
                         raise RowCheckFailed
-                    return unify(row2, (record_t, row_of_map(only_by1, (row_mono_t,))))
+                    return unify(row2,
+                                 (record_t, row_of_map(only_by1,
+                                                       (row_mono_t, ))))
                 # {only_by1|row1} == {only_by2|row2},
                 # where
                 #   only_by1 \cap only_by2 = \emptyset,
@@ -257,6 +282,9 @@ class TCState:
     def occur_in(self, var_id: int, ty: T) -> bool:
         raise NotImplementedError
 
+    def inst(self, poly: T) -> T:
+        raise NotImplementedError
+
     def infer(self, ty: T) -> T:
         raise NotImplementedError
 
@@ -275,4 +303,3 @@ class TCState:
     @classmethod
     def mk_new_type(cls, typename: str):
         return nom_t, typename
-

@@ -1,3 +1,4 @@
+from warnings import warn
 import typing as t
 
 
@@ -104,9 +105,24 @@ class RowMonoT:
 
 row_mono_t = RowMonoT()
 
+a = t.NewType("a", int)
+
 RowCons = t.Tuple[RowConsT, str, 'T', 'Row']
 RowPoly = t.Tuple[RowPolyT, 'T']
 RowMono = t.Tuple[RowMonoT]
+
+
+def mk_row_cons(a: str, b: 'T', c: 'Row') -> 'RowCons':
+    return row_cons_t, a, b, c
+
+
+def mk_row_poly(a: 'T') -> 'RowPoly':
+    return row_poly_t, a
+
+
+def mk_row_mono() -> 'RowMono':
+    return row_mono_t,
+
 
 Row = t.Union[RowCons, RowPoly, RowMono]
 
@@ -116,13 +132,42 @@ Var = t.Tuple[VarT, int]
 Nom = t.Tuple[NomT, str]
 Fresh = t.Tuple[FreshT, str]
 Tuple = t.Tuple[TupleT, t.Tuple['T', ...]]
-Forall = t.Tuple[ForallT, t.FrozenSet[str], 'T']
+Forall = t.Tuple[ForallT, t.Tuple[str, ...], 'T']
 Record = t.Tuple[RecordT, Row]
 Implicit = t.Tuple[ImplicitT, 'T', 'T']
 
 T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit]
 
-bot: Forall = (forall_t, frozenset(["a"]), (fresh_t, "a"))
+
+def mk_app(f: T, arg: T) -> T:
+    return app_t, f, arg
+
+
+def mk_arrow(arg: T, ret: T) -> T:
+    return arrow_t, arg, ret
+
+
+def mk_implicit(arg: T, ret: T) -> T:
+    return implicit_t, arg, ret
+
+
+def mk_var(i: int):
+    return var_t, i
+
+
+def mk_fresh(s: str):
+    return fresh_t, s
+
+
+def mk_tuple(*types: T):
+    return (tuple_t, *types)
+
+
+def mk_forall(names: t.Set[str], p: T):
+    return normalize_forall(names, p)
+
+
+bot: Forall = (forall_t, tuple(["a"]), (fresh_t, "a"))
 empty_row: Row = (row_mono_t, )
 
 
@@ -256,3 +301,31 @@ def row_of_map(d: t.Dict[str, T], last: Row) -> Row:
     for k, v in d.items():
         last = row_cons_t, k, v, last
     return last
+
+
+class Numbering(dict):
+    def __missing__(self, key):
+        value = self[key] = len(self)
+        return value
+
+
+def normalize_forall(bounds: t.Set[str], poly):
+    num = Numbering()
+
+    def _visit_func(fresh_names: t.Set[str], ty):
+        tag = ty[0]
+        if tag is fresh_t:
+            _, s = ty
+            _ = num[s]
+            return fresh_names, ty
+        if tag is forall_t:
+            _, ns, _ = ty
+            return {n for n in fresh_names if n not in ns}, ty
+        return fresh_names, ty
+
+    left, _ = pre_visit(_visit_func)(bounds, poly)
+    if left:
+        warn(UserWarning("Redundant free variables {}".format(left)))
+
+    return forall_t, (
+        k for k, _ in sorted(num.items(), key=lambda x: x[1])), poly
