@@ -1,6 +1,38 @@
 from warnings import warn
 from typing_extensions import Protocol
+import abc
+import collections
 import typing as t
+from dataclasses import dataclass
+try:
+    from hybridts.tc_state import LocalTypeTypo
+except ImportError:
+    pass
+
+def _remove_init(n, bases, ns):
+    del ns['__init__']
+    return type(n, bases, ns)
+
+
+@dataclass
+class FreshVar:
+    name: str
+    scope: 'ForallGroup'
+
+class ForallGroup(Protocol):
+    def get_names(self) -> t.Protocol[FreshVar]:
+        ...
+
+
+class TypeVar:
+    @property
+    def is_rigid(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def topo_maintainers(self) -> t.Set['LocalTypeTypo']:
+        raise NotImplementedError
+
 
 G = t.TypeVar('G')
 
@@ -21,9 +53,12 @@ def add_show(cls):
     return cls
 
 
+
 @add_show
 class AppT:
     __slots__ = ()
+
+
 
 
 app_t = AppT()
@@ -59,6 +94,7 @@ class FreshT:
 
 
 fresh_t = FreshT()
+
 
 @add_show
 class UnboundFreshT:
@@ -151,10 +187,18 @@ def mk_row_mono() -> 'RowMono':
 
 
 Row = t.Union[RowCons, RowPoly, RowMono]
+IsRigid = bool
+
+class App(collections.namedtuple("App", ['f', 'arg'])):
+    f: 'T'
+    arg: 'T'
+    def __init__(self, f: 'T', arg: 'T'):
+        raise NotImplementedError
+
 
 App = t.Tuple[AppT, 'T', 'T']
 Arrow = t.Tuple[ArrowT, 'T', 'T']
-Var = t.Tuple[VarT, int]
+Var = t.Tuple[VarT, int, IsRigid]
 Nom = t.Tuple[NomT, str]
 Tuple = t.Tuple[TupleT, t.Tuple['T', ...]]
 Forall = t.Tuple[ForallT, 'ForallGroup', t.Tuple['FreshVar', ...], 'T']
@@ -166,18 +210,6 @@ Fresh = t.Tuple[FreshT, 'FreshVar']
 UnboundFresh = t.Tuple[UnboundFreshT, str]
 
 T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit]
-
-class FreshVar:
-    __slots__ = ['name', 'scope']
-    def __init__(self, n : str, scope: object):
-        self.name = n
-        self.scope = scope
-    def __repr__(self):
-        return '<{} of {}>'.format(self.name, self.scope)
-
-class ForallGroup(Protocol):
-    def get_names(self) -> t.Protocol[FreshVar]:
-        ...
 
 
 def mk_app(f: T, arg: T) -> T:
@@ -204,8 +236,8 @@ def mk_tuple(*types: T):
     return (tuple_t, *types)
 
 
-def mk_forall(names: t.Iterable[str], p: T):
-    return normalize_forall(names, p)
+def mk_forall(forall_scope: ForallGroup, names: t.Iterable[str], p: T):
+    return normalize_forall(forall_scope, names, p)
 
 
 def mk_once():
@@ -215,9 +247,11 @@ def mk_once():
 class OnceManager:
     def __init__(self):
         self.store: t.List[Once] = []
+
         def close():
             for e in self.store:
                 e[1].contents = True
+
         self.closer = close
 
     def allocate(self):
@@ -226,7 +260,7 @@ class OnceManager:
         return once
 
     def start(self):
-        ret =  self.closer
+        ret = self.closer
         if self.closer:
             self.closer = None
         return ret

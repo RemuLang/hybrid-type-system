@@ -237,9 +237,18 @@ Hence, we have to keep the Klhs and Krhs and (unification or K values)          
     Map from a type variable to its related relations:
         key = var
         value = infer(var), [(Kf, Kg, Efg)]
-    
-    
-
-     
-
+    So, when var chanegd, mark if the relation map is "dirty",
+    we will update all "dirty" ones.
+ 
+    class LocalTypeTopology:
+        Klhs      : [(T, T)] # the left is from outer universe, the right is from LocalTypeTopology's university
+        Krhs      : [(T, T)] 
+         
+        maintainer : TCState # the LocalTypeTopology's universe
+        
+        # if every type var is `maintainer` has a reference, we called this topo "solved" 
+        if solved, we should delete this local type topology:
+        we delete reference of current topo from [each[0].topo_maintainers for each in Klhs]
+                                             and [each[0].topo_maintainers for each in Krhs]
+        
 """
