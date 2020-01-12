@@ -18,24 +18,16 @@ class TCState:
     def fresh(self, fresh_map: t.Dict[str, T], ty: T) -> T:
         raise NotImplementedError
 
-    def register_var(self, var: Var) -> None:
-        """
-        When using a type variable in a type state, you're
-        expected to register it first if it's not allocated
-        by TCState.new_var
-        """
-        raise NotImplementedError
-
-    def new_var(self, is_rigid: bool) -> T:
-        raise NotImplementedError
-
     def occur_in(self, var: T, ty: T) -> bool:
         raise NotImplementedError
 
     def inst(self, poly: T) -> T:
         raise NotImplementedError
 
-    def infer(self, ty: T) -> T:
+    def infer(self, ty: T) -> t.Tuple[t.Optional[Path], T]:
+        """
+        The first element is a type made of Var, but all of the value is most nearest one to be concrete.
+        """
         raise NotImplementedError
 
     def unify(self, lhs: T, rhs: T) -> None:
@@ -44,54 +36,77 @@ class TCState:
     def extract_row(self, rowt: Row) -> t.Optional[t.Dict[str, T]]:
         raise NotImplementedError
 
-    def redirect_side_effects(self, place: dict):
-        raise NotImplementedError
-
-    def finish(self):
+    def set_eq_fresh(self, local_fresh_eqs: t.Set[t.Set[T]]) -> None:
         raise NotImplementedError
 
     def copy(self):
-        TCState(self.get_tctx().copy())
+        return TCState(self.get_tctx().copy())
 
 
 class LocalTypeTypo:
-    outers: t.Tuple[T, ...]
-    inners: t.Tuple[T, ...]
+    # the keys and values(K, J) are all paths
+    K: t.Dict[T, T]  # outer to inner
+    J: t.Dict[T, T]  # inner to outer
 
+    local_fresh_eqs: t.Set[t.Set[T]]  # equivalent fresh variables
     inner_universe: TCState
     outer_universe: TCState
 
     def __init__(self, K: t.Dict[T, T], outer_universe: TCState):
+        self.dirty = False
         self.inner_universe = TCState({})
         self.outer_universe = outer_universe
-
-        (self.outers, self.inners) = zip(*((k, v) for k, v in K.items()))
+        self.K = K
+        self.J = {v: K for k, v in K.items()}
+        self.local_fresh_eqs = set()
 
     @staticmethod
-    def _universe_update(u1: TCState, tps1: t.Tuple[T, ...], u2: TCState,
-                         tps2: t.Tuple[T, ...]):
+    def _universe_update(u1: TCState, u2: TCState, tps: t.Dict[T, T], rev_tps: t.Dict[T, T]):
         subst_map: t.Dict[Var, Var] = {}
 
-        def subst(_, outer_v: T):
-            if isinstance(outer_v, Var):
-                inner_v = subst_map.get(outer_v, None)
-                if inner_v:
-                    return inner_v
-                return (), u2.new_var(outer_v.is_rigid)
-            return (), outer_v
+        def subst(_, v1: T):
+            v2 = tps.get(v1)
+            if v2:
+                return (), v2
+            if isinstance(v1, Var):
+                v2 = subst_map.get(v1)
+                if v2:
+                    return (), v2
+                v2 = subst_map[v1] = InternalVar(v2.is_rigid)
 
-        for tp1, tp2 in zip(tps1, tps2):
-            tp1_t = u1.infer(tp1)
-            tp2_t = pre_visit(subst)((), tp1_t)
-            u2.unify(tp2_t, tp2)
-        return subst_map
+                return (), v2
+            return (), v1
 
-    def update(self):
-        if not self._universe_update(self.outer_universe, self.outers, self.inner_universe, self.inners):
-            # all type variables of this topology are solved
-            # this universe is going to the end.
-            for each in self.outers:
-                each.topo_maintainers.remove(self)
+        for u1_t0, u2_t0 in tps.items():
+            # t u1   <-->   t from universe 2
+            #  |   step 1 -->           step 2
+            # \|/ pruned         /|\  unify
+            # t u1'  <-->   t' from universe 2
+            u2_t0 = tps[u1_t0]
+            u1_t1, no_path_t = u1.infer(u1_t0)
+            assert u1_t1
+            u2_t1 = tps.get(u1_t1)
+            if not u2_t1:
+                u2_t1 = tps[u1_t1] = pre_visit(subst)((), u1_t1)
+                rev_tps[u2_t1] = u1_t1
+
+            u2.unify(u2_t0, u2_t1)
+
+    def update(self, var: T):
+        if self.dirty:
+            var.topo_maintainers.remove(self)
             return
+        self.outer_universe.set_eq_fresh(self.local_fresh_eqs)
+        self._universe_update(self.outer_universe, self.inner_universe, self.K, self.J)
+        self._universe_update(self.inner_universe, self.outer_universe, self.J, self.K)
+        self._final_check()
 
-        self._universe_update(self.inner_universe, self.inners, self.outer_universe, self.outers)
+    def _final_check(self):
+        inner_infer = self.inner_universe.infer
+        _, all_keys = {inner_infer(key)[1] for key in self.K}
+
+        def check_if_no_type_var(v1: T):
+            return not isinstance(v1, Var)
+
+        if all(map(visit_check(check_if_no_type_var), all_keys)):
+            self.dirty = True

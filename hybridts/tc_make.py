@@ -1,7 +1,6 @@
 from hybridts.type_encoding import *
 from hybridts import exc
 from collections import ChainMap
-from contextlib import contextmanager
 
 import typing as t
 try:
@@ -25,23 +24,24 @@ class RowCheckFailed(Exception):
 
 
 def make(self: 'TCState', tctx: TypeCtx):
-    self.get_tctx = lambda: tctx
 
     # fresh variables are guaranteed to be not free due to syntax restriction of forall
     #  thus, when proceeding unification, freshvar cannot be greater or lesser than
     #  any other type except another fresh variable.
     # However, fresh variable can only equal to another by a bidirectional name mapping
 
+    self.get_tctx = lambda: tctx
+    eq_fresh: t.Optional[t.Dict[T, T]] = None
+
+    def set_eq_fresh(eq_fr: t.Dict[T, T]):
+        nonlocal eq_fresh
+        eq_fresh = eq_fr
+
     def subst_once(subst_map: t.Dict[T, T], ty):
         return subst_map.get(ty, ty)
 
     def subst(subst_map: t.Dict[T, T], ty: T):
         return pre_visit(subst_once)(subst_map, ty)
-
-    def new_var(is_rigid=False):
-        return InternalVar(is_rigid)
-
-    self.new_var = new_var
 
     def occur_in(var: T, ty: T) -> bool:
         if var is ty:
@@ -52,25 +52,104 @@ def make(self: 'TCState', tctx: TypeCtx):
 
         return not visit_check(visit_func)(ty)
 
-    def infer(x: T) -> T:
-        def visit_func(_, a: T):
-            if isinstance(a, Var):
-                b = tctx.get(a)
-                if not b:
-                    return (), a
-                b = infer(b)
-                if isinstance(b, Record):
-                    tail = b.row.tail
-                    if isinstance(tail, RowPoly):
-                        b = tail
+    def infer_row(x: Row) -> t.Tuple[t.Optional[Row], Row]:
+        if isinstance(x, RowCons):
+            field_path, field_t = infer(x.field_type)
+            tl_path, tl_t = infer_row(x.tail)
+            if field_path and tl_path:
+                path = RowCons(x.field_name, field_path, tl_path)
+            else:
+                path = None
+            return path, RowCons(x.field_name, field_t, tl_t)
+        if isinstance(x, RowMono):
+            return None, x
+        if isinstance(x, RowPoly):
+            path_p, t_p = infer(x.type)
+            if path_p:
+                path = RowPoly(path_p)
+            else:
+                path = None
+            return path, RowPoly(t_p)
+        raise TypeError(x)
 
-                tctx[a] = b
-                return (), b
-            return (), a
+    def infer(x: T) -> t.Tuple[t.Optional[Path], T]:
+        if isinstance(x, Nom):
+            return None, x
 
-        return pre_visit(visit_func)((), x)
+        if isinstance(x, Var):
+            path_end = tctx.get(x)
+            if not path_end:
+                return x, x
+            path_x, end = path_end
+            path_y, y = infer(end)
+            path, end = tctx[x] = path_y or path_x or x, y
+            if x.topo_maintainers:
+                topo = x.topo_maintainers
+                for each in topo:
+                    each.update(x)
 
-    self.infer = infer
+                if topo:
+
+                    def transfer_topo_notifier_to_all_path_type_vars(tt: T):
+                        if isinstance(tt, Var):
+                            tt.topo_maintainers.update(topo)
+                        return True
+
+                    if path:
+                        visit_check(
+                            transfer_topo_notifier_to_all_path_type_vars)(path)
+
+            return path, end
+
+        if isinstance(x, Fresh):
+            return x, x
+
+        if isinstance(x, App):
+            f_path, f_t = infer(x.f)
+            arg_path, arg_t = infer(x.arg)
+            if f_path and arg_path:
+                path = App(f_path, arg_path)
+            else:
+                path = None
+            return path, App(f_t, arg_t)
+        if isinstance(x, Arrow):
+            ret_path, ret_t = infer(x.ret)
+            arg_path, arg_t = infer(x.arg)
+            if ret_path and arg_path:
+                path = Arrow(arg_path, ret_path)
+            else:
+                path = None
+            return path, Arrow(arg_t, ret_t)
+        if isinstance(x, Implicit):
+            arg_path, arg_t = infer(x.witness)
+            ret_path, ret_t = infer(x.type)
+            if ret_path and arg_path:
+                path = Implicit(arg_path, ret_path)
+            else:
+                path = None
+            return path, Implicit(arg_t, ret_t)
+        if isinstance(x, Tuple):
+            paths, ts = zip(*map(infer, x.elts))
+            if all(paths):
+                path = Tuple(paths)
+            else:
+                path = None
+            return path, Tuple(ts)
+        if isinstance(x, Forall):
+            poly_path, poly_t = infer(x.poly_type)
+            if poly_path:
+                path = Forall(x.scope, x.fresh_vars, poly_path)
+            else:
+                path = None
+            return path, Forall(x.scope, x.fresh_vars, poly_t)
+        if isinstance(x, Record):
+            path_row, row_t = infer_row(x.row)
+            if not path_row:
+                path = None
+            else:
+                path = Record(path_row)
+            return path, Record(row_t)
+        raise TypeError(x)
 
     def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:
         if isinstance(rowt, RowCons):
@@ -94,91 +173,130 @@ def make(self: 'TCState', tctx: TypeCtx):
         left = _extract_row(fields, rowt)
         return fields, left
 
-    def _unify(lhs: T, rhs: T, once_manager: OnceManager) -> None:
-        ltag = lhs[0]
-        rtag = rhs[0]
-        if ltag is once_t and rtag is once_t:
-            if lhs[1].contents or rhs[1].contents:
-                raise OnceTypeMismatch
-            if lhs[1] is rhs[1]:
-                return
-            raise OnceTypeMismatch
+    def rigid_inst(fresh_vars: t.Tuple[Fresh, ...], poly: T):
+        mapping = {each: InternalVar(is_rigid=True) for each in fresh_vars}
+        return mapping, subst(mapping, poly)
 
-        if ltag is nom_t and rtag is nom_t:
-            if lhs[1] == rhs[1]:
-                return
-            raise exc.TypeMismatch(lhs, rhs)
-        if ltag is var_t and rtag is var_t and lhs[1] == rhs[1]:
+    def flexible_inst(fresh_vars: t.Tuple[Fresh, ...], poly: T):
+        mapping = {each: InternalVar(is_rigid=False) for each in fresh_vars}
+        return mapping, subst(mapping, poly)
+
+    def auto_inst(mapping: t.Dict[T, T], poly: T):
+        """not invoked by user
+        """
+        def rec_mk_world(subst_map: t.Dict[T, T], old_world_t):
+            new_world_t = subst_map.get(old_world_t)
+            if not new_world_t:
+                if isinstance(old_world_t, Var):
+                    new_world_t = subst_map[old_world_t] = InternalVar(
+                        old_world_t.is_rigid)
+                else:
+                    new_world_t = old_world_t
+            return new_world_t
+
+        return pre_visit(rec_mk_world)(mapping, poly)
+
+    def _unify(lhs: T, rhs: T) -> None:
+        nonlocal eq_fresh
+
+        if lhs is rhs:
+            # Nom, Fresh, Var
             return
 
-        if ltag is var_t:
-            i = lhs[1]
-            if occur_in(i, rhs):
+        if isinstance(lhs, Var):
+            if occur_in(lhs, rhs):
                 raise exc.IllFormedType(" a = a -> b")
-            tctx[i] = rhs
+            if lhs.is_rigid:
+                if not isinstance(rhs, LeafTypes):
+                    raise exc.TypeMismatch(lhs, rhs)
+            tctx[lhs] = rhs
             return
 
-        if rtag is var_t:
-            return _unify(rhs, lhs, once_manager)
+        if isinstance(rhs, Var):
+            return _unify(rhs, lhs)
 
-        if ltag is forall_t and rtag is forall_t:
-            # must be normalized!
-            # don't check here
-            _, ns1, p1 = lhs
-            _, ns2, p2 = rhs
-            if len(ns1) != len(ns2):
+        if isinstance(lhs, Forall):
+            if isinstance(rhs, Forall):
+                if lhs.scope is rhs.scope:
+                    return
+                else:
+                    K = {
+                        e: InternalVar(is_rigid=True)
+                        for e in lhs.fresh_vars + rhs.fresh_vars
+                    }
+                    l_p = auto_inst(K, lhs.poly_type)
+                    r_p = auto_inst(K, rhs.poly_type)
+            else:
+                K = {e: InternalVar(is_rigid=True) for e in lhs.fresh_vars}
+                l_p = lhs.poly_type
+                r_p = rhs
+
+            vars = set()
+
+            for k, _ in K.items():
+                if isinstance(k, Var):
+                    vars.add(k)
+
+            if not vars:
+                # no break, no type variable in l_p or r_p
+                tmp, eq_fresh = eq_fresh, set()
+                unify(l_p, r_p)
+                eq_fresh = tmp
+                return
+
+            local_type_topo = LocalTypeTypo(K, self)
+            for var in vars:
+                var.topo_maintainers.add(local_type_topo)
+            local_type_topo.inner_universe.unify(l_p, r_p)
+            # noinspection PyUnboundLocalVariable
+            local_type_topo.update(var)  # must have been assigned, please.
+
+        if isinstance(rhs, Forall):
+            _unify(rhs, lhs)
+
+        if isinstance(lhs, Fresh) and isinstance(rhs, Fresh):
+            if not eq_fresh:
+                return
+
+            lhs, rhs = sorted((lhs, rhs))
+            look_l = eq_fresh.get(lhs)
+            if look_l:
+                if look_l is rhs:
+                    return
                 raise exc.TypeMismatch(lhs, rhs)
 
-            # use `if ns1 == ns2` here? my data is immutable, seems
-            # will improve performance?
-            return unify(fresh(dict(zip(ns1, ns2)), p1), p2)
-
-        if ltag is forall_t:
-            _, ns, p = lhs
-            lt = fresh({n: once_manager.allocate() for n in ns}, p)
-            return unify(lt, rhs)
-
-        if rtag is forall_t:
-            return _unify(rhs, lhs, once_manager)
-
-        if ltag is fresh_t and rtag is fresh_t:
-            # there's only one forall context.
-            # Fresh types from other forall types will be freshed to types like
-            #   (t >= bound)
-            # , or
-            #   (t = bound)
-            # , where bound is closed.
-            return lhs[1] == rhs[1]
-
-        if ltag is implicit_t and ltag is implicit_t:
-            unify(lhs[1], rhs[1])
-            unify(lhs[2], rhs[2])
+            eq_fresh[lhs] = rhs
             return
 
-        if ltag is implicit_t:
-            return unify(lhs[2], rhs)
-
-        if rtag is implicit_t:
-            return unify(lhs, rhs[2])
-
-        if ltag is arrow_t and rtag is arrow_t:
-            unify(lhs[1], rhs[1])
-            unify(lhs[2], rhs[2])
+        if isinstance(lhs, Implicit) and isinstance(rhs, Implicit):
+            unify(lhs.witness, rhs.witness)
+            unify(lhs.type, rhs.type)
             return
 
-        if ltag is app_t and rtag is app_t:
-            unify(lhs[1], rhs[1])
-            unify(lhs[2], rhs[2])
+        if isinstance(lhs, Implicit):
+            return unify(lhs.type, rhs)
+
+        if isinstance(rhs, Implicit):
+            return unify(lhs, rhs.type)
+
+        if isinstance(lhs, Arrow) and isinstance(rhs, Arrow):
+            unify(lhs.arg, rhs.arg)
+            unify(lhs.ret, rhs.ret)
             return
 
-        if ltag is tuple_t and rtag is tuple_t:
-            for a, b in zip(lhs[1], rhs[1]):
+        if isinstance(lhs, App) and isinstance(rhs, App):
+            unify(lhs.f, rhs.f)
+            unify(lhs.arg, rhs.arg)
+            return
+
+        if isinstance(lhs, Tuple) and isinstance(rhs, Tuple):
+            for a, b in zip(lhs.elts, rhs.elts):
                 unify(a, b)
             return
 
-        if ltag is record_t and rtag is record_t:
-            m1, ex1 = extract_row(lhs[1])
-            m2, ex2 = extract_row(rhs[1])
+        if isinstance(lhs, Record) and isinstance(rhs, Record):
+            m1, ex1 = extract_row(lhs.row)
+            m2, ex2 = extract_row(rhs.row)
             common_keys = m1.keys() & m2.keys()
             only_by1 = {k: v for k, v in m1.items() if k not in common_keys}
             only_by2 = {k: v for k, v in m2.items() if k not in common_keys}
@@ -202,9 +320,7 @@ def make(self: 'TCState', tctx: TypeCtx):
                     #    row2 = only_by1
                     if only_by2:
                         raise RowCheckFailed
-                    return unify(row2,
-                                 (record_t, row_of_map(only_by1,
-                                                       (row_mono_t, ))))
+                    return unify(row2, Record(row_of_map(only_by1, empty_row)))
                 # {only_by1|row1} == {only_by2|row2},
                 # where
                 #   only_by1 \cap only_by2 = \emptyset,
@@ -215,9 +331,9 @@ def make(self: 'TCState', tctx: TypeCtx):
                 #   t1 = {only_by1 \cup only_by2|row} = t2,
                 #   {only_by1|row} = row2
                 #   {only_by2|row} = row1
-                polyrow = (row_poly_t, new_var())
-                ex2 = (record_t, row_of_map(only_by1, polyrow))
-                ex1 = (record_t, row_of_map(only_by2, polyrow))
+                polyrow = RowPoly(InternalVar(is_rigid=False))
+                ex2 = Record(row_of_map(only_by1, polyrow))
+                ex1 = Record(row_of_map(only_by2, polyrow))
                 unify(row1, ex1)
                 unify(row2, ex2)
 
@@ -228,31 +344,8 @@ def make(self: 'TCState', tctx: TypeCtx):
         raise exc.TypeMismatch(lhs, rhs)
 
     def unify(lhs, rhs):
-        lhs = infer(lhs)
-        rhs = infer(rhs)
-        manager = OnceManager()
-        closer = manager.start()
-        try:
-            _unify(lhs, rhs, once_manager=manager)
-        except OnceTypeMismatch:
-            raise exc.TypeMismatch(infer(lhs), infer(rhs))
-        finally:
-            if closer:
-                closer()
+        _, lhs = infer(lhs)
+        _, rhs = infer(rhs)
+        _unify(lhs, rhs)
 
     self.unify = unify
-
-    def redirect_side_effects(place: dict):
-        @contextmanager
-        def apply():
-            nonlocal tctx
-            resume = tctx
-            tctx = TransactionMap(place, resume)
-            try:
-                yield
-            finally:
-                tctx = resume
-
-        return apply
-
-    self.redirect_side_effects = redirect_side_effects

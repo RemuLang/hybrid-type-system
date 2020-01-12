@@ -257,4 +257,34 @@ f1 : forall a. a -> var
 f2 : a' -> 'b
 
 
+blablabla, 
+
+when auto unifying:
+    forall a. a -> a
+    forall b. b -> b
+    both sides turn out to be rigid.
+    but, to make this fail:
+        forall a. a -> a
+        forall b. b -> int
+    only rigid is not enough,
+    we try to assign one rigid initially.
+    
+    f: forall a. a -> a
+    g: forall b. b -> var
+    
+    Kf: {a: v1}
+    Kg: {b: v2, var: var'}
+    [v1 = v2, v1 = var']
+    Kf: {a: v2}
+    Kg: {b: v2}
+    
+    
+    so, finally(after the inner universe ended),
+    for K {a: int, b: int}, we judge it as type check failure according to
+     "fresh variable can and can only bidirectionally equal to another fresh variable in another side."
+        
+        
+        
+    
+
 """

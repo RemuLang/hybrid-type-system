@@ -11,10 +11,16 @@ except ImportError:
     pass
 
 
-@dataclass(eq=True, frozen=True, order=True)
 class Fresh:
     name: str
     scope: 'ForallGroup'
+
+    def __init__(self, name: str, scope: 'ForallGroup'):
+        self.name = name
+        self.scope = scope
+
+    def __repr__(self):
+        return '<{}|{}>'.format(self.scope, self.name)
 
 
 class ForallGroup(Protocol):
@@ -32,6 +38,19 @@ class Var:
         raise NotImplementedError
 
 
+_encode_list = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()_+{}[]|\\:;"'<,>.?/'
+_base = len(_encode_list)
+
+
+def _shorter_string_base(num):
+    res = []
+    app = res.append
+    while num != 0:
+        app(_encode_list[num % _base])
+        num //= _base
+    return ''.join(res)
+
+
 class InternalVar(Var):
     """
     This kind of type variable is not user-created, but you does can,
@@ -43,6 +62,11 @@ class InternalVar(Var):
     def __init__(self, is_rigid: bool):
         self.topo_maintainers = set()
         self.is_rigid = is_rigid
+
+    def __repr__(self):
+        return '<{} var|{}>'.format(
+            'rigid' if self.is_rigid else 'flexible',
+            _shorter_string_base(id(self)))
 
 
 G = t.TypeVar('G')
@@ -125,8 +149,8 @@ class UnboundFresh:
 
 
 T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit]
-
-TypeCtx = t.Dict[Var, T]
+Path = t.Union[App, Arrow, Var, Fresh, Tuple, Forall, Record, Implicit]
+TypeCtx = t.Dict[Var, t.Tuple[t.Optional[Path], T]]
 Handler = t.Callable
 
 _Ctx = t.TypeVar('_Ctx')
