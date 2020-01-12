@@ -3,12 +3,13 @@ from typing_extensions import Protocol
 import abc
 import typing as t
 from dataclasses import dataclass
-
 try:
     # noinspection PyUnresolvedReferences
     from hybridts.tc_state import LocalTypeTypo
 except ImportError:
     pass
+
+DEBUG = True
 
 
 class Fresh:
@@ -20,12 +21,19 @@ class Fresh:
         self.scope = scope
 
     def __repr__(self):
-        return '<{}|{}>'.format(self.scope, self.name)
+        return self.name
 
 
-class ForallGroup(Protocol):
-    def get_names(self) -> t.Tuple[Fresh, ...]:
-        ...
+class ForallGroup:
+    pass
+
+
+class InternalForallScope(ForallGroup):
+    def __init__(self, name: str):
+        self._name = name
+
+    def __repr__(self):
+        return '{}'.format(self._name)
 
 
 class Var:
@@ -33,7 +41,7 @@ class Var:
     topo_maintainers: t.Set['LocalTypeTypo']
 
 
-_encode_list = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()_+{}[]|\\:;"'<,>.?/'
+_encode_list = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()_+{}[]|\\:;" '<,>.?/'
 _base = len(_encode_list)
 
 
@@ -45,23 +53,42 @@ def _shorter_string_base(num):
         num //= _base
     return ''.join(res)
 
+if DEBUG:
+    cnt = 0
+    class InternalVar(Var):
+        """
+        This kind of type variable is not user-created, but you does can,
+        if you don't mind the bad error reporting :)
+        """
+        is_rigid: bool
+        topo_maintainers: t.Set[t.Tuple['T', 'LocalTypeTypo']]
 
-class InternalVar(Var):
-    """
-    This kind of type variable is not user-created, but you does can,
-    if you don't mind the bad error reporting :)
-    """
-    is_rigid: bool
-    topo_maintainers: t.Set[t.Tuple['T', 'LocalTypeTypo']]
+        def __init__(self, is_rigid: bool):
+            global cnt
+            self.topo_maintainers = set()
+            self.is_rigid = is_rigid
+            self.id = cnt
+            cnt += 1
 
-    def __init__(self, is_rigid: bool):
-        self.topo_maintainers = set()
-        self.is_rigid = is_rigid
+        def __repr__(self):
+            return '<{} var|{}>'.format('rigid' if self.is_rigid else 'flexible', self.id)
 
-    def __repr__(self):
-        return '<{} var|{}>'.format(
-            'rigid' if self.is_rigid else 'flexible',
-            _shorter_string_base(id(self)))
+else:
+    class InternalVar(Var):
+        """
+        This kind of type variable is not user-created, but you does can,
+        if you don't mind the bad error reporting :)
+        """
+        is_rigid: bool
+        topo_maintainers: t.Set[t.Tuple['T', 'LocalTypeTypo']]
+
+        def __init__(self, is_rigid: bool):
+            self.topo_maintainers = set()
+            self.is_rigid = is_rigid
+
+        def __repr__(self):
+            return '<{} var|{}>'.format('rigid' if self.is_rigid else 'flexible',
+                                        _shorter_string_base(id(self)))
 
 
 G = t.TypeVar('G')
@@ -102,11 +129,21 @@ class App:
     f: 'T'
     arg: 'T'
 
+    def __repr__(self):
+        if isinstance(self.arg, SimplyReprType):
+            return '{!r} {!r}'.format(self.f, self.arg)
+        return '{!r} ({!r})'.format(self.f, self.arg)
+
 
 @dataclass(eq=True, frozen=True, order=True)
 class Arrow:
     arg: 'T'
     ret: 'T'
+
+    def __repr__(self):
+        if isinstance(self.arg, SimplyReprType):
+            return '{!r} -> {!r}'.format(self.arg, self.ret)
+        return '({!r}) -> {!r}'.format(self.arg, self.ret)
 
 
 class Nom(abc.ABC):
@@ -126,11 +163,16 @@ class InternalNom(Nom):
         return self._name
 
 
+def _repr_many(xs):
+    return map(repr, xs)
 
 
 @dataclass(eq=True, frozen=True, order=True)
 class Tuple:
     elts: t.Tuple['T', ...]
+
+    def __repr__(self):
+        return '({})'.format(', '.join(_repr_many(self.elts)))
 
 
 @dataclass(eq=True, frozen=True, order=True)
@@ -138,6 +180,10 @@ class Forall:
     scope: ForallGroup
     fresh_vars: t.Tuple[Fresh, ...]
     poly_type: 'T'
+
+    def __repr__(self):
+        return 'forall {}. {!r}'.format(' '.join(_repr_many(self.fresh_vars)),
+                                        self.poly_type)
 
 
 @dataclass(eq=True, frozen=True, order=True)
@@ -160,6 +206,8 @@ T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit]
 Path = t.Union[App, Arrow, Var, Fresh, Tuple, Forall, Record, Implicit]
 TypeCtx = t.Dict[Var, t.Tuple[t.Optional[Path], T]]
 Handler = t.Callable
+
+SimplyReprType = (Var, Nom, Fresh, Tuple, Record)
 
 _Ctx = t.TypeVar('_Ctx')
 
@@ -267,7 +315,7 @@ def normalize_forall(forall_scope: ForallGroup, bounds: t.Iterable[str], poly):
 
         return (), ty
 
-    poly = pre_visit(_visit_func)(poly)
+    poly = pre_visit(_visit_func)((), poly)
     left = bounds ^ maps.keys()
     if left:
         warn(UserWarning("Redundant free variables {}".format(left)))

@@ -38,8 +38,8 @@ tcs.unify(x1, int_t)
 tcs.unify(x1, x2)
 
 
-assert tcs.infer(x1) == int_t
-assert tcs.infer(x2) == int_t
+assert tcs.path_infer(x1) == int_t
+assert tcs.path_infer(x2) == int_t
 
 x3 = tcs.new_var()
 
@@ -49,8 +49,8 @@ tho = tcs.new_var()
 r2 = row_of_map({'a': x3}, poly_row(tho))
 r2 = record_of_row(r2)
 tcs.unify(r1, r2)
-print(tcs.infer(r1))
-print(tcs.infer(r2))
+print(tcs.path_infer(r1))
+print(tcs.path_infer(r2))
 
 # (RecordT, (RowConsT, 'b', (NomT, 'base.int'), (RowConsT, 'a', (NomT, 'base.int'), (RowMonoT,))))
 # (RecordT, (RowConsT, 'a', (NomT, 'base.int'), (RowPolyT, (RecordT, (RowConsT, 'b', (NomT, 'base.int'), (RowMonoT,)

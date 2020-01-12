@@ -17,7 +17,10 @@ class TCState:
     def inst(self, poly: T) -> T:
         raise NotImplementedError
 
-    def infer(self, ty: T) -> t.Tuple[t.Optional[Path], T]:
+    def infer(self, ty: T) -> T:
+        raise NotImplementedError
+
+    def path_infer(self, ty: T) -> t.Tuple[t.Optional[Path], T]:
         """
         The first element is a type made of Var, but all of the value is most nearest one to be concrete.
         """
@@ -79,7 +82,7 @@ class LocalTypeTypo:
             # \|/ pruned         /|\  unify
             # t u1'  <-->   t' from universe 2
             u2_t0 = tps[u1_t0]
-            u1_t1, no_path_t = u1.infer(u1_t0)
+            u1_t1, no_path_t = u1.path_infer(u1_t0)
             assert u1_t1
             u2_t1 = tps.get(u1_t1)
             if not u2_t1:
@@ -102,7 +105,7 @@ class LocalTypeTypo:
         outer_universe.eq_fresh = tmp
 
     def _final_check(self):
-        outer_infer = self.outer_universe.infer
+        outer_infer = self.outer_universe.path_infer
         _, all_keys = {outer_infer(key)[1] for key in self.K}
 
         def check_if_no_type_var(v1: T):

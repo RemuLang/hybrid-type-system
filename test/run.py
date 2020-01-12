@@ -13,8 +13,9 @@ tcs.unify(x1, int_t)
 tcs.unify(x1, x2)
 
 
-assert tcs.infer(x1) == int_t
-assert tcs.infer(x2) == int_t
+
+assert tcs.path_infer(x1)[1] == int_t
+assert tcs.path_infer(x2)[1] == int_t
 
 x3 = te.InternalVar(is_rigid=False)
 
@@ -24,8 +25,8 @@ tho = te.InternalVar(is_rigid=False)
 r2 = te.row_of_map({'a': x3}, te.RowPoly(tho))
 r2 = te.Record(r2)
 tcs.unify(r1, r2)
-print(tcs.infer(r1))
-print(tcs.infer(r2))
+print(tcs.path_infer(r1)[1])
+print(tcs.path_infer(r2)[1])
 
 
 
