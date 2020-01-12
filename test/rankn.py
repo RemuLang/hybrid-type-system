@@ -251,4 +251,10 @@ Hence, we have to keep the Klhs and Krhs and (unification or K values)          
         we delete reference of current topo from [each[0].topo_maintainers for each in Klhs]
                                              and [each[0].topo_maintainers for each in Krhs]
         
+        
+can outer type var get used by inner universe directly?
+f1 : forall a. a -> var
+f2 : a' -> 'b
+
+
 """

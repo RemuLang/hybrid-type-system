@@ -2,12 +2,14 @@ from hybridts.type_encoding import *
 from hybridts import exc
 from collections import ChainMap
 from contextlib import contextmanager
-# noinspection PyUnresolvedReferences
+
 import typing as t
 try:
+    # noinspection PyUnresolvedReferences
     from hybridts.tc_state import TCState
 except ImportError:
     pass
+
 
 # noinspection PyUnresolvedReferences
 class TransactionMap(ChainMap):
@@ -30,69 +32,39 @@ def make(self: 'TCState', tctx: TypeCtx):
     #  any other type except another fresh variable.
     # However, fresh variable can only equal to another by a bidirectional name mapping
 
-    def _visit_func(fresh_map: dict, ty):
-        tag = ty[0]
-        if tag is fresh_t:
-            _, s = ty
-            return fresh_map, fresh_map.get(s, ty)
-        if tag is forall_t:
-            _, ns, _ = ty
-            return {n: t for n, t in fresh_map.items() if n not in ns}, ty
-        return fresh_map, ty
+    def subst_once(subst_map: t.Dict[T, T], ty):
+        return subst_map.get(ty, ty)
 
-    def fresh(fresh_map, ty):
-        # TODO: more efficient, exit when fresh_map is empty
-        return pre_visit(_visit_func)(fresh_map, ty)
+    def subst(subst_map: t.Dict[T, T], ty: T):
+        return pre_visit(subst_once)(subst_map, ty)
 
-    self.fresh = fresh
-
-    def inst(type: T) -> T:
-        if type[0] is forall_t:
-            _, ns, t = type
-            return fresh({n: new_var() for n in ns}, t)
-        return type
-
-    self.inst = inst
-
-    def new_var():
-        vid = len(tctx)
-        var = var_t, vid
-        tctx[vid] = var
-        return var
+    def new_var(is_rigid=False):
+        return InternalVar(is_rigid)
 
     self.new_var = new_var
 
-    def int_of_var(v: T) -> t.Optional[int]:
-        if v[0] is var_t:
-            return v[1]
-        return None
-
-    self.int_of_var = int_of_var
-
-    def occur_in(var_id: int, ty: T) -> bool:
-        if int_of_var(ty) == var_id:
+    def occur_in(var: T, ty: T) -> bool:
+        if var is ty:
             return False
 
         def visit_func(tt: T):
-            return tt[0] is not var_t or tt[1] != var_id
+            return not isinstance(tt, Var) or tt is not var
 
         return not visit_check(visit_func)(ty)
 
-    self.occur_in = occur_in
-
     def infer(x: T) -> T:
         def visit_func(_, a: T):
-            if a[0] is var_t:
-                i = a[1]
-                b = tctx[i]
-                if b[0] is var_t and b[1] == i:
+            if isinstance(a, Var):
+                b = tctx.get(a)
+                if not b:
                     return (), a
                 b = infer(b)
-                # OPT here
-                if b[0] is record_t and b[1][0] is row_poly_t:
-                    b = b[1][1]
+                if isinstance(b, Record):
+                    tail = b.row.tail
+                    if isinstance(tail, RowPoly):
+                        b = tail
 
-                tctx[i] = b
+                tctx[a] = b
                 return (), b
             return (), a
 
@@ -101,29 +73,26 @@ def make(self: 'TCState', tctx: TypeCtx):
     self.infer = infer
 
     def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:
-        if rowt[0] is row_cons_t:
-            root: RowCons = rowt
-            _, k, v, rec = root
-            if k in fields:
-                raise exc.RowFieldDuplicated(rowt[1])
-            fields[k] = v
-            return _extract_row(fields, rec)
-        if rowt[0] is row_mono_t:
+        if isinstance(rowt, RowCons):
+            field_name = rowt.field_name
+            if field_name in fields:
+                raise exc.RowFieldDuplicated(field_name)
+            fields[field_name] = rowt.field_type
+            return _extract_row(fields, rowt.tail)
+        if isinstance(rowt, RowMono):
             return None
-        if rowt[0] is row_poly_t:
-            tt = rowt[1]
-            if tt[0] is record_t:
-                return _extract_row(fields, tt[1])
+        if isinstance(rowt, RowPoly):
+            tt = rowt.type
+            if isinstance(tt, Record):
+                return _extract_row(fields, tt.row)
             return tt
 
-        raise TypeError(rowt[0])
+        raise TypeError(rowt)
 
     def extract_row(rowt: Row) -> t.Tuple[t.Dict[str, T], t.Optional[T]]:
         fields = {}
         left = _extract_row(fields, rowt)
         return fields, left
-
-    self.extract_row = extract_row
 
     def _unify(lhs: T, rhs: T, once_manager: OnceManager) -> None:
         ltag = lhs[0]
