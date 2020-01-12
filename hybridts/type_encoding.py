@@ -24,18 +24,13 @@ class Fresh:
 
 
 class ForallGroup(Protocol):
-    def get_names(self) -> t.Protocol[Fresh]:
+    def get_names(self) -> t.Tuple[Fresh, ...]:
         ...
 
 
 class Var:
-    @property
-    def is_rigid(self) -> bool:
-        raise NotImplementedError
-
-    @property
-    def topo_maintainers(self) -> t.Set['LocalTypeTypo']:
-        raise NotImplementedError
+    is_rigid: bool
+    topo_maintainers: t.Set['LocalTypeTypo']
 
 
 _encode_list = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()_+{}[]|\\:;"'<,>.?/'
@@ -118,6 +113,19 @@ class Nom(abc.ABC):
     @abc.abstractmethod
     def get_name(self) -> str:
         raise NotImplementedError
+
+    def __repr__(self):
+        return self.get_name()
+
+
+class InternalNom(Nom):
+    def __init__(self, name):
+        self._name = name
+
+    def get_name(self) -> str:
+        return self._name
+
+
 
 
 @dataclass(eq=True, frozen=True, order=True)

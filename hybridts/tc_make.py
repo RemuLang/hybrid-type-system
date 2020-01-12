@@ -1,6 +1,5 @@
 from hybridts.type_encoding import *
 from hybridts import exc
-from collections import ChainMap
 
 import typing as t
 try:
@@ -8,15 +7,6 @@ try:
     from hybridts.tc_state import TCState
 except ImportError:
     pass
-
-
-# noinspection PyUnresolvedReferences
-class TransactionMap(ChainMap):
-    def __setitem__(self, key, value):
-        self.maps[0][key] = value
-
-    def __delitem__(self, key):
-        del self.maps[0][key]
 
 
 class RowCheckFailed(Exception):
@@ -31,11 +21,6 @@ def make(self: 'TCState', tctx: TypeCtx):
     # However, fresh variable can only equal to another by a bidirectional name mapping
 
     self.get_tctx = lambda: tctx
-    eq_fresh: t.Optional[t.Dict[T, T]] = None
-
-    def set_eq_fresh(eq_fr: t.Dict[T, T]):
-        nonlocal eq_fresh
-        eq_fresh = eq_fr
 
     def subst_once(subst_map: t.Dict[T, T], ty):
         return subst_map.get(ty, ty)
@@ -82,7 +67,7 @@ def make(self: 'TCState', tctx: TypeCtx):
                 return x, x
             path_x, end = path_end
             path_y, y = infer(end)
-            path, end = tctx[x] = path_y or path_x or x, y
+            path, end = tctx[x] = (path_y or path_x or x), y
             if x.topo_maintainers:
                 topo = x.topo_maintainers
                 for each in topo:
@@ -197,7 +182,6 @@ def make(self: 'TCState', tctx: TypeCtx):
         return pre_visit(rec_mk_world)(mapping, poly)
 
     def _unify(lhs: T, rhs: T) -> None:
-        nonlocal eq_fresh
 
         if lhs is rhs:
             # Nom, Fresh, Var
@@ -239,15 +223,16 @@ def make(self: 'TCState', tctx: TypeCtx):
 
             if not vars:
                 # no break, no type variable in l_p or r_p
-                tmp, eq_fresh = eq_fresh, set()
+                tmp, self.eq_fresh = self.eq_fresh, set()
                 unify(l_p, r_p)
-                eq_fresh = tmp
+                self.eq_fresh = tmp
                 return
 
             local_type_topo = LocalTypeTypo(K, self)
             for var in vars:
                 var.topo_maintainers.add(local_type_topo)
             local_type_topo.inner_universe.unify(l_p, r_p)
+
             # noinspection PyUnboundLocalVariable
             local_type_topo.update(var)  # must have been assigned, please.
 
@@ -255,6 +240,7 @@ def make(self: 'TCState', tctx: TypeCtx):
             _unify(rhs, lhs)
 
         if isinstance(lhs, Fresh) and isinstance(rhs, Fresh):
+            eq_fresh = self.eq_fresh
             if not eq_fresh:
                 return
 
@@ -346,6 +332,10 @@ def make(self: 'TCState', tctx: TypeCtx):
     def unify(lhs, rhs):
         _, lhs = infer(lhs)
         _, rhs = infer(rhs)
+
         _unify(lhs, rhs)
 
     self.unify = unify
+    self.infer = infer
+    self.occur_in = occur_in
+    self.extract_row = extract_row

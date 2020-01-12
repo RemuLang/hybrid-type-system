@@ -4,18 +4,11 @@ from hybridts.tc_make import make
 import typing as t
 
 
-
 class TCState:
     def __init__(self, tctx: TypeCtx):
         make(self, tctx)
 
     def get_tctx(self):
-        raise NotImplementedError
-
-    def get_all_vars(self):
-        raise NotImplementedError
-
-    def fresh(self, fresh_map: t.Dict[str, T], ty: T) -> T:
         raise NotImplementedError
 
     def occur_in(self, var: T, ty: T) -> bool:
@@ -36,11 +29,13 @@ class TCState:
     def extract_row(self, rowt: Row) -> t.Optional[t.Dict[str, T]]:
         raise NotImplementedError
 
-    def set_eq_fresh(self, local_fresh_eqs: t.Set[t.Set[T]]) -> None:
-        raise NotImplementedError
+    eq_fresh: t.Dict[Fresh, Fresh]
 
     def copy(self):
-        return TCState(self.get_tctx().copy())
+        tcs = TCState(self.get_tctx().copy())
+        eq_fresh = self.eq_fresh or {}
+        tcs.eq_fresh = eq_fresh.copy()
+        return tcs
 
 
 class LocalTypeTypo:
@@ -61,7 +56,8 @@ class LocalTypeTypo:
         self.local_fresh_eqs = set()
 
     @staticmethod
-    def _universe_update(u1: TCState, u2: TCState, tps: t.Dict[T, T], rev_tps: t.Dict[T, T]):
+    def _universe_update(u1: TCState, u2: TCState, tps: t.Dict[T, T],
+                         rev_tps: t.Dict[T, T]):
         subst_map: t.Dict[Var, Var] = {}
 
         def subst(_, v1: T):
@@ -96,14 +92,18 @@ class LocalTypeTypo:
         if self.dirty:
             var.topo_maintainers.remove(self)
             return
-        self.outer_universe.set_eq_fresh(self.local_fresh_eqs)
-        self._universe_update(self.outer_universe, self.inner_universe, self.K, self.J)
-        self._universe_update(self.inner_universe, self.outer_universe, self.J, self.K)
+        outer_universe = self.outer_universe
+        inner_universe = self.inner_universe
+        K, J = self.K, self.J
+        outer_universe.eq_fresh, tmp = self.local_fresh_eqs, outer_universe.eq_fresh
+        self._universe_update(outer_universe, inner_universe, K, J)
+        self._universe_update(inner_universe, outer_universe, J, K)
         self._final_check()
+        outer_universe.eq_fresh = tmp
 
     def _final_check(self):
-        inner_infer = self.inner_universe.infer
-        _, all_keys = {inner_infer(key)[1] for key in self.K}
+        outer_infer = self.outer_universe.infer
+        _, all_keys = {outer_infer(key)[1] for key in self.K}
 
         def check_if_no_type_var(v1: T):
             return not isinstance(v1, Var)
