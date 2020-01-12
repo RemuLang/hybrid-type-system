@@ -1,12 +1,12 @@
 from hybridts.type_encoding import *
-from hybridts.tc_make import make
+from hybridts import tc_make
 # noinspection PyUnresolvedReferences
 import typing as t
 
 
 class TCState:
     def __init__(self, tctx: TypeCtx):
-        make(self, tctx)
+        tc_make.make(self, tctx)
 
     def get_tctx(self):
         raise NotImplementedError
@@ -55,11 +55,11 @@ class LocalTypeTypo:
         self.inner_universe = TCState({})
         self.outer_universe = outer_universe
         self.K = K
-        self.J = {v: K for k, v in K.items()}
+        self.J = {v: k for k, v in K.items()}
         self.local_fresh_eqs = set()
 
     @staticmethod
-    def _universe_update(u1: TCState, u2: TCState, tps: t.Dict[T, T],
+    def _universe_update(u1: TCState, tps: t.Dict[T, T],
                          rev_tps: t.Dict[T, T]):
         subst_map: t.Dict[Var, Var] = {}
 
@@ -71,25 +71,27 @@ class LocalTypeTypo:
                 v2 = subst_map.get(v1)
                 if v2:
                     return (), v2
-                v2 = subst_map[v1] = InternalVar(v2.is_rigid)
+                v2 = subst_map[v1] = InternalVar(v1.is_rigid)
 
                 return (), v2
             return (), v1
 
-        for u1_t0, u2_t0 in tps.items():
+        u1_ctx = u1.get_tctx()
+        for u1_t0, u2_t0 in tuple(tps.items()):
             # t u1   <-->   t from universe 2
             #  |   step 1 -->           step 2
             # \|/ pruned         /|\  unify
             # t u1'  <-->   t' from universe 2
             u2_t0 = tps[u1_t0]
-            u1_t1, no_path_t = u1.path_infer(u1_t0)
+
+            u1_t1, no_path_t = u1_ctx.get(u1_t0, (u1_t0, u1_t0))
             assert u1_t1
             u2_t1 = tps.get(u1_t1)
             if not u2_t1:
                 u2_t1 = tps[u1_t1] = pre_visit(subst)((), u1_t1)
-                rev_tps[u2_t1] = u1_t1
 
-            u2.unify(u2_t0, u2_t1)
+                rev_tps[u2_t1] = u1_t1
+            yield u2_t0, u2_t1
 
     def update(self, var: T):
         if self.dirty:
@@ -99,17 +101,23 @@ class LocalTypeTypo:
         inner_universe = self.inner_universe
         K, J = self.K, self.J
         outer_universe.eq_fresh, tmp = self.local_fresh_eqs, outer_universe.eq_fresh
-        self._universe_update(outer_universe, inner_universe, K, J)
-        self._universe_update(inner_universe, outer_universe, J, K)
+        for l, r in self._universe_update(outer_universe, K, J):
+            inner_universe.unify(l, r)
+        xs = list(self._universe_update(inner_universe, J, K))
         self._final_check()
         outer_universe.eq_fresh = tmp
+        return xs
 
     def _final_check(self):
-        outer_infer = self.outer_universe.path_infer
-        _, all_keys = {outer_infer(key)[1] for key in self.K}
+        u_tctx = self.outer_universe.get_tctx()
+        all_keys = {u_tctx.get(key, (None, key))[1] for key in self.K}
 
         def check_if_no_type_var(v1: T):
             return not isinstance(v1, Var)
 
         if all(map(visit_check(check_if_no_type_var), all_keys)):
             self.dirty = True
+            print('universe destroyed')
+
+
+tc_make.LocalTypeTypo = LocalTypeTypo

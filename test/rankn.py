@@ -1,6 +1,8 @@
 from hybridts.tc_state import TCState
 from hybridts import type_encoding as te
+import sys
 
+sys.setrecursionlimit(50)
 tctx = {}
 
 tcs = TCState(tctx)
@@ -33,7 +35,7 @@ tcs = TCState(tctx)
 #
 # print(tcs.infer(x))
 
-x = te.InternalVar(is_rigid=False)
+sun = te.InternalVar(is_rigid=False)
 # forall a. a -> a
 
 mk_fresh = lambda x: te.UnboundFresh(x)
@@ -51,20 +53,63 @@ def mk_forall(xs, t: te.T, name=None):
 mk_arrow = lambda x, y: te.Arrow(x, y)
 
 # forall a. a -> a
-auto = mk_forall({"a"}, mk_arrow(mk_fresh("a"), mk_fresh("a")))
+# auto = mk_forall({"a"}, mk_arrow(mk_fresh("a"), mk_fresh("a")))
+#
+# # forall a. a -> a -> a
+# choose = mk_forall({"a"}, mk_arrow(mk_fresh("a"), mk_arrow(mk_fresh("a"), mk_fresh("a"))))
+# choose2 = mk_arrow(bot, mk_arrow(bot, bot))
+# tcs.unify(mk_arrow(auto, x), tcs.inst(choose))
+# print(tcs.infer(x))
 
-# forall a. a -> a -> a
-choose = mk_forall({"a"}, mk_arrow(mk_fresh("a"), mk_arrow(mk_fresh("a"), mk_fresh("a"))))
-choose2 = mk_arrow(bot, mk_arrow(bot, bot))
-tcs.unify(mk_arrow(auto, x), tcs.inst(choose))
-print(tcs.infer(x))
+# f: forall a. a -> a
+# g: (int -> int) -> int
+# g f
 
-# forall a. a -> a
-# (int -> int) -> int
+# skip
+
+class Var(te.Var):
+    def __init__(self, name):
+        self.is_rigid = False
+        self.topo_maintainers = set()
+        self.name = name
+    def __repr__(self):
+        return self.name
+
+int_t = te.InternalNom("int")
+sun = Var("sun")
+f = mk_forall(["x"], mk_arrow(mk_fresh('x'), sun))
+# print(tcs.infer(f))
+
+sam = Var("sam")
+zak = Var("zak")
+
+tcs.unify(f, mk_arrow(sam, zak))
+
+tcs.unify(zak, sam)
+
+
+
+# print('K', e.K)
+# print('J', e.J)
+# print(tcs.get_tctx())
+# print(tcs.infer(f))
+# print(tcs.infer(zak))
+
+
+
 
 
 
 # y = te.InternalVar(is_rigid=False)
 # tcs.unify(mk_arrow(tcs.inst(auto), y), tcs.inst(choose2))
 #
-# print(tcs.infer(y))
+# print(tcs.infer(sun))
+tcs.unify(sam, int_t)
+print(tcs.infer(f))
+
+
+# e = tcs.path_infer(sun)[0]
+# for k in tcs.get_tctx().keys():
+#     k: Var
+#     print(k.topo_maintainers)
+

@@ -71,8 +71,14 @@ def make(self: 'TCState', tctx: TypeCtx):
             path, end = tctx[x] = (path_y or path_x or x), y
             if x.topo_maintainers:
                 topo = x.topo_maintainers
+                xs = []
                 for each in topo:
-                    each.update(x)
+                    xs.extend(each.update(x))
+                if path and path is not x:
+                    x.topo_maintainers = ()
+
+                for l, r in xs:
+                    unify(l, r)
 
                 if topo:
 
@@ -178,12 +184,11 @@ def make(self: 'TCState', tctx: TypeCtx):
                         old_world_t.is_rigid)
                 else:
                     new_world_t = old_world_t
-            return new_world_t
+            return subst_map, new_world_t
 
         return pre_visit(rec_mk_world)(mapping, poly)
 
     def _unify(lhs: T, rhs: T) -> None:
-
         if lhs is rhs:
             # Nom, Fresh, Var
             return
@@ -213,8 +218,8 @@ def make(self: 'TCState', tctx: TypeCtx):
                     r_p = auto_inst(K, rhs.poly_type)
             else:
                 K = {e: InternalVar(is_rigid=True) for e in lhs.fresh_vars}
-                l_p = lhs.poly_type
-                r_p = rhs
+                l_p = auto_inst(K, lhs.poly_type)
+                r_p = auto_inst(K, rhs)
 
             vars = set()
 
@@ -232,10 +237,15 @@ def make(self: 'TCState', tctx: TypeCtx):
             local_type_topo = LocalTypeTypo(K, self)
             for var in vars:
                 var.topo_maintainers.add(local_type_topo)
+
             local_type_topo.inner_universe.unify(l_p, r_p)
 
             # noinspection PyUnboundLocalVariable
-            local_type_topo.update(var)  # must have been assigned, please.
+            for var in vars:
+                xs = local_type_topo.update(var)  # must have been assigned, please.
+                for l, r in xs:
+                    unify(l, r)
+            return
 
         if isinstance(rhs, Forall):
             _unify(rhs, lhs)
@@ -331,9 +341,9 @@ def make(self: 'TCState', tctx: TypeCtx):
         raise exc.TypeMismatch(lhs, rhs)
 
     def unify(lhs, rhs):
+
         _, lhs = path_infer(lhs)
         _, rhs = path_infer(rhs)
-
         _unify(lhs, rhs)
 
     def infer(t):
@@ -354,3 +364,4 @@ def make(self: 'TCState', tctx: TypeCtx):
     self.occur_in = occur_in
     self.extract_row = extract_row
     self.infer = infer
+
