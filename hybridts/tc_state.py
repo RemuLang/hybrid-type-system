@@ -122,9 +122,16 @@ def make(self: 'TCState', tctx: TypeCtx):
 
     self.extract_row = extract_row
 
-    def _unify(lhs: T, rhs: T) -> None:
+    def _unify(lhs: T, rhs: T, once_manager: OnceManager) -> None:
         ltag = lhs[0]
         rtag = rhs[0]
+        if ltag is once_t and rtag is once_t:
+            if lhs[1].contents or rhs[1].contents:
+                raise OnceTypeMismatch
+            if lhs[1] is rhs[1]:
+                return
+            raise OnceTypeMismatch
+
         if ltag is nom_t and rtag is nom_t:
             if lhs[1] == rhs[1]:
                 return
@@ -140,7 +147,7 @@ def make(self: 'TCState', tctx: TypeCtx):
             return
 
         if rtag is var_t:
-            return _unify(rhs, lhs)
+            return _unify(rhs, lhs, once_manager)
 
         if ltag is forall_t and rtag is forall_t:
             # must be normalized!
@@ -153,6 +160,14 @@ def make(self: 'TCState', tctx: TypeCtx):
             # use `if ns1 == ns2` here? my data is immutable, seems
             # will improve performance?
             return unify(fresh(dict(zip(ns1, ns2)), p1), p2)
+
+        if ltag is forall_t:
+            _, ns, p = lhs
+            lt = fresh({n: once_manager.allocate() for n in ns}, p)
+            return unify(lt, rhs)
+
+        if rtag is forall_t:
+            return _unify(rhs, lhs, once_manager)
 
         if ltag is fresh_t and rtag is fresh_t:
             # there's only one forall context.
@@ -243,7 +258,15 @@ def make(self: 'TCState', tctx: TypeCtx):
     def unify(lhs, rhs):
         lhs = infer(lhs)
         rhs = infer(rhs)
-        return _unify(lhs, rhs)
+        manager = OnceManager()
+        closer = manager.start()
+        try:
+            _unify(lhs, rhs, once_manager=manager)
+        except OnceTypeMismatch:
+            raise exc.TypeMismatch(infer(lhs), infer(rhs))
+        finally:
+            if closer:
+                closer()
 
     self.unify = unify
 
@@ -295,6 +318,9 @@ class TCState:
         raise NotImplementedError
 
     def redirect_side_effects(self, place: dict):
+        raise NotImplementedError
+
+    def finish(self):
         raise NotImplementedError
 
     def copy(self):

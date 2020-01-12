@@ -1,5 +1,16 @@
 from warnings import warn
+from typing_extensions import Protocol
 import typing as t
+
+G = t.TypeVar('G')
+
+
+class Ref(t.Generic[G]):
+
+    contents: G
+
+    def __init__(self, contents: G):
+        self.contents = contents
 
 
 def add_show(cls):
@@ -49,6 +60,13 @@ class FreshT:
 
 fresh_t = FreshT()
 
+@add_show
+class UnboundFreshT:
+    __slots__ = ()
+
+
+unbound_fresh_t = UnboundFreshT()
+
 
 @add_show
 class TupleT:
@@ -80,6 +98,14 @@ class ImplicitT:
 
 
 implicit_t = ImplicitT()
+
+
+@add_show
+class OnceT:
+    __slots__ = ()
+
+
+once_t = OnceT()
 
 
 @add_show
@@ -130,13 +156,28 @@ App = t.Tuple[AppT, 'T', 'T']
 Arrow = t.Tuple[ArrowT, 'T', 'T']
 Var = t.Tuple[VarT, int]
 Nom = t.Tuple[NomT, str]
-Fresh = t.Tuple[FreshT, str]
 Tuple = t.Tuple[TupleT, t.Tuple['T', ...]]
-Forall = t.Tuple[ForallT, t.Tuple[str, ...], 'T']
+Forall = t.Tuple[ForallT, 'ForallGroup', t.Tuple['FreshVar', ...], 'T']
 Record = t.Tuple[RecordT, Row]
 Implicit = t.Tuple[ImplicitT, 'T', 'T']
+Once = t.Tuple[OnceT, Ref[bool]]
+
+Fresh = t.Tuple[FreshT, 'FreshVar']
+UnboundFresh = t.Tuple[UnboundFreshT, str]
 
 T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit]
+
+class FreshVar:
+    __slots__ = ['name', 'scope']
+    def __init__(self, n : str, scope: object):
+        self.name = n
+        self.scope = scope
+    def __repr__(self):
+        return '<{} of {}>'.format(self.name, self.scope)
+
+class ForallGroup(Protocol):
+    def get_names(self) -> t.Protocol[FreshVar]:
+        ...
 
 
 def mk_app(f: T, arg: T) -> T:
@@ -163,11 +204,34 @@ def mk_tuple(*types: T):
     return (tuple_t, *types)
 
 
-def mk_forall(names: t.Set[str], p: T):
+def mk_forall(names: t.Iterable[str], p: T):
     return normalize_forall(names, p)
 
 
-bot: Forall = (forall_t, tuple(["a"]), (fresh_t, "a"))
+def mk_once():
+    return once_t, Ref(False)
+
+
+class OnceManager:
+    def __init__(self):
+        self.store: t.List[Once] = []
+        def close():
+            for e in self.store:
+                e[1].contents = True
+        self.closer = close
+
+    def allocate(self):
+        once = mk_once()
+        self.store.append(once)
+        return once
+
+    def start(self):
+        ret =  self.closer
+        if self.closer:
+            self.closer = None
+        return ret
+
+
 empty_row: Row = (row_mono_t, )
 
 
@@ -180,6 +244,7 @@ def record_of_row(row: Row):
 
 
 TypeCtx = t.Dict[int, T]
+Handler = t.Callable
 
 _Ctx = t.TypeVar('_Ctx')
 
@@ -207,7 +272,7 @@ def pre_visit(f: t.Callable[[_Ctx, T], t.Tuple[_Ctx, T]]):
             raise TypeError(tag)
 
         tag = root[0]
-        if tag in (var_t, nom_t, fresh_t):
+        if tag in (var_t, nom_t, fresh_t, once_t, unbound_fresh_t):
             return root
         if tag is app_t:
             # must rename, due to PyCharm's weakness
@@ -228,8 +293,8 @@ def pre_visit(f: t.Callable[[_Ctx, T], t.Tuple[_Ctx, T]]):
             return implicit_t, eval_t(witness), eval_t(t)
         if tag is forall_t:
             root_: Forall = root
-            _, ns, t = root_
-            return forall_t, ns, eval_t(t)
+            _, g, ns, t = root_
+            return forall_t, g, ns, eval_t(t)
         if tag is record_t:
             root_: Record = root
             rowt = root_[1]
@@ -259,7 +324,7 @@ def visit_check(f: t.Callable[[T], bool]):
             raise TypeError(tag)
 
         tag = root[0]
-        if tag in (var_t, nom_t, fresh_t):
+        if tag in (var_t, nom_t, fresh_t, once_t, unbound_fresh_t):
             return True
         if tag is app_t:
             # must rename, due to PyCharm's weakness
@@ -280,7 +345,7 @@ def visit_check(f: t.Callable[[T], bool]):
             return eval_t(witness) and eval_t(t)
         if tag is forall_t:
             root_: Forall = root
-            _, ns, t = root_
+            _, _, ns, t = root_
             return eval_t(t)
         if tag is record_t:
             root_: Record = root
@@ -309,23 +374,28 @@ class Numbering(dict):
         return value
 
 
-def normalize_forall(bounds: t.Set[str], poly):
-    num = Numbering()
+def normalize_forall(forall_scope: ForallGroup, bounds: t.Iterable[str], poly):
+    bounds = set(bounds)
+    maps = {}
 
     def _visit_func(fresh_names: t.Set[str], ty):
         tag = ty[0]
-        if tag is fresh_t:
+        if tag is unbound_fresh_t:
             _, s = ty
-            _ = num[s]
-            return fresh_names, ty
-        if tag is forall_t:
-            _, ns, _ = ty
-            return {n for n in fresh_names if n not in ns}, ty
+            f_var = maps.get(s, None)
+            if f_var is None:
+                f_var = maps[s] = FreshVar(s, forall_scope)
+            return fresh_names, f_var
+
         return fresh_names, ty
 
-    left, _ = pre_visit(_visit_func)(bounds, poly)
+    poly = pre_visit(_visit_func)(bounds, poly)
+    left = bounds ^ maps.keys()
     if left:
         warn(UserWarning("Redundant free variables {}".format(left)))
 
-    return forall_t, (
-        k for k, _ in sorted(num.items(), key=lambda x: x[1])), poly
+    return forall_t, forall_scope, tuple(maps.values()), poly
+
+
+class OnceTypeMismatch(Exception):
+    pass
