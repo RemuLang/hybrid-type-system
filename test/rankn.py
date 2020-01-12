@@ -173,6 +173,11 @@ so, fresh var `a` in f is like nominal type, shouldn't expand.
 
 tcs.rigid_inst(f) unify (tcs.flexible_inst(arg) -> var), nice 
 
+besides, when unifying, forall can only do rigid instance.
+
+user can manually flexibly expand types, such as argument type!
+
+nice!
 
 arg : forall a. a -> a
 f   : (int -> int) -> int
