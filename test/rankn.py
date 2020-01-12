@@ -179,7 +179,67 @@ user can manually flexibly expand types, such as argument type!
 
 nice!
 
-arg : forall a. a -> a
-f   : (int -> int) -> int
+So, now, the problem gets raised: how should we implement rigid once type and flexible once type?
+1. checking scope exceeding problem after unifying
+2. assign a kind to once to indicate it is rigid or flexible?
+    if rigid, okay for assigned to a type var
+              okay for making once equality to another once type
+              fail for other cases
+    if flexible,
+              okay to perform like a normal type var
+
+So flexible once type is only a normal type var?
+Why once type? To guarantee any checking with once type fail after leaving the given forall scope.
+
+f : forall a. a -> var
+arg : a' -> a', (a' is a type var)
+
+ 
+Kf: {a: v1, var: v3}, v1 is rigid
+Karg: {a': v2}, v2 is flexible
+v1, v2, v3 is closed in this scope
+
+[v1 = v2, v3 = v2]
+
+for arg: {a' : v1'=infer(v1)},
+    a' is tvar, unify a' v1'
+for f:
+    a is fresh,  {a: v2, var: v2}
+
+f: forall a. a -> var
+g : a' -> b'
+f unify g
+
+Kf : {a: v1, var: v2}
+Kg : {a': v3, b': v4}
+
+    !!! v1, v2, v3, v4 is closed! 
+[v1 = v3, v2 = v4] (Efg  -------------------------------------------------------------------
+                                                                                           |
+g unify h                                                                                  |
+h : z' -> z'                                                                               |
+Kg : {a': v5, b': v6}                                                                      |
+Kh: {z': v7}
+[v5 = v7, v6 = v7]
+
+for g: {a': v7, b' = v7}
+
+infer(f) trigger Kf pruning                                                                 |
+    {v7: v3, v7: v4}                                                                        |
+    [v1 = v3, v2 = v4] -> [v7 = v3 = v4 = v1 = v2]                                          |
+    {a: v1, var: v2} -> {a: v7, var: v7}, var = a                                           |
+                                                                                            |
+Hence, we have to keep the Klhs and Krhs and (unification or K values)                      |
+                                                                                            | 
+ any change to one of {var, 'a, 'b} will trigger the update of ------------------------------
+    Kf, Kg and Efg
+    
+    Map from a type variable to its related relations:
+        key = var
+        value = infer(var), [(Kf, Kg, Efg)]
+    
+    
+
+     
 
 """
