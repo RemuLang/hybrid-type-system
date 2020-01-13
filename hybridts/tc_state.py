@@ -21,6 +21,9 @@ class TCState:
     ) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
         raise NotImplementedError
 
+    def inst_with_fresh_map(self, poly:T) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
+        raise NotImplementedError
+
     def inst(self, poly: T) -> T:
         raise NotImplementedError
 

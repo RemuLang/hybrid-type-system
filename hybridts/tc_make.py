@@ -317,7 +317,14 @@ def make(self: 'TCState', tctx: TypeCtx):
             return fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)[2][0]
         return t
 
+    def inst_with_fresh_map(t, rigid=False):
+        if isinstance(t, Forall):
+            a, b, c = fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)
+            return a, b, c[0]
+        return [], (), t
+
     self.inst = inst
+    self.inst_with_fresh_map = inst_with_fresh_map
     self.fresh = fresh
     self.unify = unify
     self.path_infer = path_infer
