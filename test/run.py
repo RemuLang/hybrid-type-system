@@ -79,3 +79,7 @@ tcs.unify(f_, te.Arrow(sam, te.Tuple((sam, sam))))
 print(tcs.infer(f_))
 print(tcs.infer(f))
 # print(tcs.infer(zak))
+
+# forall a. a -> var
+# a = i1 -> i2
+# a2 = i2 -> i1

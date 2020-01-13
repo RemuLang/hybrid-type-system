@@ -1,7 +1,6 @@
 from hybridts.type_encoding import *
 from hybridts import exc
-from dataclasses import dataclass
-from collections import defaultdict
+from collections import defaultdict, ChainMap
 import typing as t
 try:
     # noinspection PyUnresolvedReferences
@@ -14,35 +13,114 @@ class RowCheckFailed(Exception):
     pass
 
 
-
 class StructureKeeper:
+    is_finished: bool
+
+    def update(self, tcs: 'TCState', path_lhs: Path) -> None:
+        raise NotImplementedError
+
+
+class FlexibleStructureKeeper(StructureKeeper):
+    freshes: t.List[Fresh]
+    vars: t.List[Var]
+    fresh_pathes: t.List[T]
+    var_paths: t.List[T]
+    is_finished: bool
+
+    def __init__(self, freshes: t.List[Fresh], vars: t.List[Var],
+                 fresh_pathes: t.List[T], var_paths: t.List[T]):
+        self.freshes = freshes
+        self.vars = vars
+        self.fresh_pathes = fresh_pathes
+        self.var_paths = var_paths
+        self.is_finished = False
+
+    def __repr__(self):
+        # TODO
+        return 'FlexibleStructure({!r} = {!r} ~ {!r} = {!r})'.format(
+            self.freshes, self.fresh_pathes, self.vars, self.var_paths)
+
+    def update(self, tcs: 'TCState', path_lhs: Path) -> None:
+        var_paths = tuple(tcs.path_infer(path)[0] for path in self.var_paths)
+        fresh_paths = tuple(
+            tcs.path_infer(path)[0] for path in self.fresh_pathes)
+
+        lookup = {k: v for k, v in zip(fresh_paths, self.freshes)}
+
+        def subst(_, t):
+            return (), lookup.get(t, t)
+
+        vars_path_tp = Tuple(var_paths)
+        vars_path_tp = pre_visit(subst)((), tcs.infer(vars_path_tp))
+
+        for var, each in zip(self.vars, vars_path_tp.elts):
+            tcs.unify(var, each)
+
+        vars_ftv = ftv(vars_path_tp)
+        if not vars_ftv:
+            self.is_finished = True
+        # TODO:
+        # forall a. a -> var
+        # unify with ('i -> 'j) -> ('j -> 'i), where
+        #     'i, 'j are variables,
+        # this certainly can be true, unless
+        #   infer(i') != infer('j)   and
+        #   infer(i') = some non-var and
+        #   infer(j') = some non-var
+
+        else:
+            # fresh_paths_ftv = ftv(Tuple(fresh_paths))
+            # if fresh_paths_ftv.issuperset(vars_ftv):
+            #     raise exc.StructureCannotUnify(vars)
+            path_lhs, _ = tcs.path_infer(path_lhs)
+            structures = tcs.get_structures()
+            for fv in ftv(path_lhs):
+                structures[fv].add(self)
+
+
+class RigidStructureKeeper(StructureKeeper):
     template: T
     path: T
     is_finished: bool
 
-    def __init__(self, template: T, path: T, is_finished=False):
+    def __init__(self, template: T, path: T):
         self.template = template
         self.path = path
-        self.is_finished = is_finished
+        self.is_finished = False
 
     def __repr__(self):
-        return 'Structure({!r} = {!r})'.format(self.template, self.path)
+        return 'RigidStructure({!r} = {!r})'.format(self.template, self.path)
+
+    def update(self, tcs: 'TCState', path_lhs: Path) -> None:
+        path, _ = tcs.path_infer(self.path)
+        _, structure = fresh_ftv(path)
+
+        tcs.unify(structure, self.template)
+
+        if not ftv(tcs.infer(path)):
+            self.is_finished = True
+        else:
+            path_lhs, _ = tcs.path_infer(path_lhs)
+            structures = tcs.get_structures()
+            for fv in ftv(path_lhs):
+                structures[fv].add(self)
 
 
-def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[StructureKeeper]]):
+def make(self: 'TCState', tctx: TypeCtx,
+         structures: t.Dict[Var, t.Set[StructureKeeper]]):
 
     # fresh variables are guaranteed to be not free due to syntax restriction of forall
     #  thus, when proceeding unification, freshvar cannot be greater or lesser than
     #  any other type except another fresh variable.
     # However, fresh variable can only equal to another by a bidirectional name mapping
 
-    structures: t.Dict[Var, t.Set[StructureKeeper]] = structures or defaultdict(set)
+    structures: t.Dict[Var,
+                       t.Set[StructureKeeper]] = structures or defaultdict(set)
     self.get_tctx = lambda: tctx
 
     # key => [(template, path)]
     # every time, `path` gets updatd, we fresh all type variables in `path`, which
     # produces a closed new type, and use this unify with `template`
-
 
     def subst_once(subst_map: t.Dict[T, T], ty):
         return subst_map, subst_map.get(ty, ty)
@@ -152,22 +230,48 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
         _, monotype = rigid_fresh_vars_and_bounds(polytype, mapping)
         lhs, rhs = zip(*mapping.items())
         assert mapping
-        structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
+        structure_keeper = RigidStructureKeeper(Tuple(lhs), Tuple(rhs))
         for each in rhs:
             structures[each].add(structure_keeper)
         return monotype
 
-    def inst_with_structure_preserved(type, rigid=False) -> t.Tuple[t.Dict[T, Var], T]:
+    def inst_with_structure_preserved(type,
+                                      rigid=False
+                                      ) -> t.Tuple[t.Dict[T, Var], T]:
         if isinstance(type, Forall):
             mapping: t.Dict[T, Var] = {}
             type = type.poly_type
-            fresh = rigid_fresh_vars_and_bounds if rigid else fresh_vars_and_bounds
-            _, type = fresh(type, mapping)
-            if mapping:
-                lhs, rhs = zip(*mapping.items())
-                structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
-                for each in rhs:
-                    structures[each].add(structure_keeper)
+            if rigid:
+                _, type = rigid_fresh_vars_and_bounds(type, mapping)
+                if mapping:
+                    lhs, rhs = zip(*mapping.items())
+                    structure_keeper = RigidStructureKeeper(
+                        Tuple(lhs), Tuple(rhs))
+                    for each in rhs:
+                        structures[each].add(structure_keeper)
+            else:
+                _, type = fresh_vars_and_bounds(type, mapping)
+
+                if mapping:
+                    vars = {}
+                    freshes = {}
+                    for k, v in mapping.items():
+                        if isinstance(k, Var):
+                            kv = vars
+                        else:
+                            assert isinstance(k, Fresh)
+                            kv = freshes
+                        kv[k] = v
+                    if not vars:
+                        return mapping, type
+
+                    freshes, fresh_paths = zip(*freshes.items())
+                    vars, var_paths = zip(*vars.items())
+                    structure_keeper = FlexibleStructureKeeper(
+                        list(freshes), list(vars), list(fresh_paths),
+                        list(var_paths))
+                    for each in mapping.values():
+                        structures[each].add(structure_keeper)
         else:
             mapping = {}
         return mapping, type
@@ -203,18 +307,7 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
                         structure_keepers.remove(structure_keeper)
                         continue
                     else:
-                        # solve
-                        path, _ = path_infer(structure_keeper.path)
-                        _, structure = fresh_ftv(path)
-                        unify(structure, structure_keeper.template)
-
-                        if not ftv(infer(path)):
-                            structure_keeper.is_finished = True
-                        else:
-                            path_lhs, _ = path_infer(path_lhs)
-                            structure_keepers.remove(structure_keeper)
-                            for fv in ftv(path_lhs):
-                                structures[fv].add(structure_keeper)
+                        structure_keeper.update(self, path_lhs)
             return
 
         if isinstance(rhs, Var):

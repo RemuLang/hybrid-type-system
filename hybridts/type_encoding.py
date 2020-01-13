@@ -170,15 +170,11 @@ class Tuple:
         return '({})'.format(', '.join(_repr_many(self.elts)))
 
 
+@dataclass(eq=True, frozen=True, order=True)
 class Forall:
     token: object
     fresh_vars: t.Tuple[Fresh, ...]
     poly_type: 'T'
-
-    def __init__(self, token: object, fresh_vars: t.Tuple[Fresh, ...], poly_type: 'T'):
-        self.token = token
-        self.fresh_vars = fresh_vars
-        self.poly_type = poly_type
 
     def __repr__(self):
         return 'forall {}. {!r}'.format(' '.join(_repr_many(self.fresh_vars)),

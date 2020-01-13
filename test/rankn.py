@@ -92,24 +92,27 @@ print(tcs.infer(f))
 
 print('===')
 deps = tcs.get_structures()
+for k, v in deps.items():
+    print(k)
+    print(v)
 
-# for ftv in te.ftv(f_):
-#     print(deps.get(ftv))
+for k, (v, c) in tcs.get_tctx().items():
+    print(k, v, c)
 
 
-auto = mk_forall(["x"], mk_arrow(mk_fresh('x'), mk_fresh("x")))
-choose = mk_forall(["x"], mk_arrow(mk_fresh("x"), mk_arrow(mk_fresh('x'), mk_fresh("x"))))
-_, auto_ = tcs.inst_with_structure_preserved(auto)
-_, choose_ = tcs.inst_without_structure_preserved(choose)
-ret = Var("ret")
-tcs.unify(mk_arrow(auto_, ret), choose_)
-print(tcs.infer(ret))
-
-a = mk_forall(["a"],  mk_fresh("a"))
-f = mk_forall(["x"], mk_arrow(mk_fresh('x'), mk_fresh("x")))
-
-_, a_ = tcs.inst_with_structure_preserved(a)
-_, f_ = tcs.inst_without_structure_preserved(f)
-
-tcs.unify(a_, f_)
-
+# auto = mk_forall(["x"], mk_arrow(mk_fresh('x'), mk_fresh("x")))
+# choose = mk_forall(["x"], mk_arrow(mk_fresh("x"), mk_arrow(mk_fresh('x'), mk_fresh("x"))))
+# _, auto_ = tcs.inst_with_structure_preserved(auto)
+# _, choose_ = tcs.inst_without_structure_preserved(choose)
+# ret = Var("ret")
+# tcs.unify(mk_arrow(auto_, ret), choose_)
+# print(tcs.infer(ret))
+#
+# a = mk_forall(["a"],  mk_fresh("a"))
+# f = mk_forall(["x"], mk_arrow(mk_fresh('x'), mk_fresh("x")))
+#
+# _, a_ = tcs.inst_with_structure_preserved(a)
+# _, f_ = tcs.inst_without_structure_preserved(f)
+#
+# tcs.unify(a_, f_)
+#

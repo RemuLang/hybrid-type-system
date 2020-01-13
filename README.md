@@ -30,8 +30,12 @@ Kind checker is not implemented.
    
 Don't do this:
 ```shell script
-TCState.inst_without_structure_preserved(forall a b. a -> 'ftv) `unify` `a -> a`
+TCState.inst_without_structure_preserved(forall a b. a -> 'ftv) unify (a -> a)
 ```
+
+P.S: Currently, `(forall a. a -> var) unify ((i -> j) -> (j -> i))` won't lead to failure, this is in the TO-DO list.
+Actually, only when `i` and `j` are inferred to point to another non-variable type should above unification fail. 
+ 
       
 ## Usage
 

@@ -43,3 +43,6 @@ class RigidTypeExpanding(TypeCheckError):
     var: object
     def __init__(self, var: object):
         self.var = var
+
+class StructureCannotUnify(TypeCheckError):
+    pass
