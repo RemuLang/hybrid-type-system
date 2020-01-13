@@ -146,7 +146,7 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
 
     def inst_forall_with_structure_preserved(polytype: T):
         mapping: t.Dict[T, Var] = {}
-        monotype = fresh_vars_and_bounds(polytype, mapping)
+        _, monotype = fresh_vars_and_bounds(polytype, mapping)
         lhs, rhs = zip(*mapping.items())
         assert mapping
         structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
@@ -154,28 +154,30 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
             structures[each].add(structure_keeper)
         return monotype
 
-    def inst_with_structure_preserved(type) -> T:
+    def inst_with_structure_preserved(type) -> t.Tuple[t.Dict[T, Var], T]:
         if isinstance(type, Forall):
             mapping: t.Dict[T, Var] = {}
             type = type.poly_type
-            type = fresh_vars_and_bounds(type, mapping)
+            _, type = fresh_vars_and_bounds(type, mapping)
             if mapping:
                 lhs, rhs = zip(*mapping.items())
                 structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
                 for each in rhs:
                     structures[each].add(structure_keeper)
-        return type
+        else:
+            mapping = {}
+        return mapping, type
 
-    def inst_without_structure_preserved(type) -> T:
+    def inst_without_structure_preserved(type) -> t.Tuple[t.Dict[T, Var], T]:
         """
         When using this, there should be no free variable in the scope of forall!
         """
         if isinstance(type, Forall):
             mapping: t.Dict[T, Var] = {}
             type = type.poly_type
-            type = fresh_bound_but_no_var(type, mapping)
-            return type
-        return type
+            _, type = fresh_bound_but_no_var(type, mapping)
+            return mapping, type
+        return {}, type
 
     def _unify(lhs: T, rhs: T, path_lhs: Path, path_rhs: Path) -> None:
         if lhs is rhs:
@@ -199,7 +201,7 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
                     else:
                         # solve
                         path, _ = path_infer(structure_keeper.path)
-                        structure = fresh_vars(path)
+                        _, structure = fresh_ftv(path)
                         unify(structure, structure_keeper.template)
 
                         if not ftv(infer(path)):

@@ -359,10 +359,10 @@ def _variable_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
 _fresh_vars = pre_visit(_variable_fresh_visitor)
 
 
-def fresh_vars(t: T, mapping=None) -> T:
+def fresh_ftv(t: T, mapping=None) -> t.Tuple[t.Dict[Var, Var], T]:
     if mapping is None:
         mapping = {}
-    return _fresh_vars(mapping, t)
+    return mapping, _fresh_vars(mapping, t)
 
 
 _var_and_fresh = (Var, Fresh)
@@ -381,10 +381,10 @@ def _variable_and_bound_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T
 _fresh_vars_and_bounds = pre_visit(_variable_and_bound_fresh_visitor)
 
 
-def fresh_vars_and_bounds(t: T, mapping=None) -> T:
+def fresh_vars_and_bounds(t: T, mapping=None) -> t.Tuple[t.Dict[t.Union[Fresh, Var], Var], T]:
     if mapping is None:
         mapping = {}
-    return _fresh_vars_and_bounds(mapping, t)
+    return mapping, _fresh_vars_and_bounds(mapping, t)
 
 
 def _bound_but_no_var_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
@@ -402,10 +402,10 @@ def _bound_but_no_var_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']
 _fresh_bound_but_no_var = pre_visit(_variable_and_bound_fresh_visitor)
 
 
-def fresh_bound_but_no_var(t: T, mapping=None) -> T:
+def fresh_bound_but_no_var(t: T, mapping=None) -> t.Tuple[t.Dict[Fresh, Var], T]:
     if mapping is None:
         mapping = {}
-    return _fresh_bound_but_no_var(mapping, t)
+    return mapping, _fresh_bound_but_no_var(mapping, t)
 
 
 def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:

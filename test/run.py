@@ -46,7 +46,7 @@ zak = Var("zak")
 
 # typeof(f_) = instantiate typeof(f)
 # f_: x' -> ?ret'
-f_ = tcs.inst_with_structure_preserved(f)
+_, f_ = tcs.inst_with_structure_preserved(f)
 # x' -> ?ret' = sam -> zak
 tcs.unify(f_, te.Arrow(sam, zak))
 # zak = sam
@@ -69,7 +69,7 @@ zak = Var("zak")
 
 # typeof(f_) = instantiate typeof(f)
 # f_: x' -> ?ret'
-f_ = tcs.inst_without_structure_preserved(f)
+_, f_ = tcs.inst_without_structure_preserved(f)
 
 # x' -> ?ret' = sam -> zak
 tcs.unify(f_, te.Arrow(sam, te.Tuple((sam, sam))))

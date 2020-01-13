@@ -82,7 +82,7 @@ f = mk_forall(["x"], mk_arrow(mk_fresh('x'), sun))
 
 sam = Var("sam")
 zak = Var("zak")
-f_ = tcs.inst_with_structure_preserved(f)
+_, f_ = tcs.inst_with_structure_preserved(f)
 tcs.unify(f_, mk_arrow(sam, zak))
 
 tcs.unify(zak, sam)
