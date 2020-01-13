@@ -21,10 +21,10 @@ class TCState:
     ) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
         raise NotImplementedError
 
-    def inst_with_structure_preserved(self, maybepoly: T) -> t.Tuple[t.Dict[T, Var], T]:
+    def inst_with_structure_preserved(self, maybepoly: T, rigid=False) -> t.Tuple[t.Dict[T, Var], T]:
         raise NotImplementedError
 
-    def inst_without_structure_preserved(self, maybepoly: T) -> t.Tuple[t.Dict[T, Var], T]:
+    def inst_without_structure_preserved(self, maybepoly: T, rigid=False) -> t.Tuple[t.Dict[T, Var], T]:
         raise NotImplementedError
 
     def infer(self, ty: T) -> T:

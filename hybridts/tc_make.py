@@ -90,6 +90,9 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
             path_x, end = path_end
             path_y, y = path_infer(end)
             path, end = tctx[x] = (path_y or path_x or x), y
+            if x.is_rigid and not isinstance(end, LeafTypes):
+                raise exc.RigidTypeExpanding(x)
+
             return path, end
 
         if isinstance(x, Fresh):
@@ -146,7 +149,7 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
 
     def inst_forall_with_structure_preserved(polytype: T):
         mapping: t.Dict[T, Var] = {}
-        _, monotype = fresh_vars_and_bounds(polytype, mapping)
+        _, monotype = rigid_fresh_vars_and_bounds(polytype, mapping)
         lhs, rhs = zip(*mapping.items())
         assert mapping
         structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
@@ -154,11 +157,12 @@ def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[Structure
             structures[each].add(structure_keeper)
         return monotype
 
-    def inst_with_structure_preserved(type) -> t.Tuple[t.Dict[T, Var], T]:
+    def inst_with_structure_preserved(type, rigid=False) -> t.Tuple[t.Dict[T, Var], T]:
         if isinstance(type, Forall):
             mapping: t.Dict[T, Var] = {}
             type = type.poly_type
-            _, type = fresh_vars_and_bounds(type, mapping)
+            fresh = rigid_fresh_vars_and_bounds if rigid else fresh_vars_and_bounds
+            _, type = fresh(type, mapping)
             if mapping:
                 lhs, rhs = zip(*mapping.items())
                 structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))

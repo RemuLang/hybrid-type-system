@@ -37,3 +37,9 @@ class ShouldntFreshVarHere(TypeCheckError):
     This might be due to you're instantiating a forall type which contains
     multiple bound variables and at least 1 free variable.
     """
+
+
+class RigidTypeExpanding(TypeCheckError):
+    var: object
+    def __init__(self, var: object):
+        self.var = var
