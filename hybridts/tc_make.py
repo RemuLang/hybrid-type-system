@@ -1,6 +1,6 @@
 from hybridts.type_encoding import *
 from hybridts import exc
-
+from dataclasses import dataclass
 import typing as t
 try:
     # noinspection PyUnresolvedReferences
@@ -13,6 +13,15 @@ class RowCheckFailed(Exception):
     pass
 
 
+@dataclass
+class PathKeeper:
+    unfreshed: Var
+    freshed: Var
+    paths: t.List[Path]
+    freshs: t.Tuple[Fresh, ...]
+    is_finished: bool
+
+
 def make(self: 'TCState', tctx: TypeCtx):
 
     # fresh variables are guaranteed to be not free due to syntax restriction of forall
@@ -21,7 +30,8 @@ def make(self: 'TCState', tctx: TypeCtx):
     # However, fresh variable can only equal to another by a bidirectional name mapping
 
     self.get_tctx = lambda: tctx
-    self.eq_fresh = None
+
+    fresh_path_dep: t.Dict[Var, PathKeeper] = {}
 
     def subst_once(subst_map: t.Dict[T, T], ty):
         return subst_map, subst_map.get(ty, ty)
@@ -69,28 +79,6 @@ def make(self: 'TCState', tctx: TypeCtx):
             path_x, end = path_end
             path_y, y = path_infer(end)
             path, end = tctx[x] = (path_y or path_x or x), y
-            if x.topo_maintainers:
-                topo = x.topo_maintainers
-                xs = []
-                for each in topo:
-                    xs.extend(each.update(x))
-                if path and path is not x:
-                    x.topo_maintainers = ()
-
-                for l, r in xs:
-                    unify(l, r)
-
-                if topo:
-
-                    def transfer_topo_notifier_to_all_path_type_vars(tt: T):
-                        if isinstance(tt, Var):
-                            tt.topo_maintainers.update(topo)
-                        return True
-
-                    if path:
-                        visit_check(
-                            transfer_topo_notifier_to_all_path_type_vars)(path)
-
             return path, end
 
         if isinstance(x, Fresh):
@@ -143,52 +131,33 @@ def make(self: 'TCState', tctx: TypeCtx):
             return path, Record(row_t)
         raise TypeError(x)
 
-    def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:
-        if isinstance(rowt, RowCons):
-            field_name = rowt.field_name
-            if field_name in fields:
-                raise exc.RowFieldDuplicated(field_name)
-            fields[field_name] = rowt.field_type
-            return _extract_row(fields, rowt.tail)
-        if isinstance(rowt, RowMono):
-            return None
-        if isinstance(rowt, RowPoly):
-            tt = rowt.type
-            if isinstance(tt, Record):
-                return _extract_row(fields, tt.row)
-            return tt
+    def fresh(fresh_vars, *types: T, is_rigid: bool) -> t.List[T]:
+        K = {e: InternalVar(is_rigid=is_rigid) for e in fresh_vars}
+        paths, freshs = zip(*[(K[each], each) for each in K])
+        paths = list(paths)
+        types = [_auto_inst(K, type, paths, freshs) for type in types]
+        return types
 
-        raise TypeError(rowt)
-
-    def extract_row(rowt: Row) -> t.Tuple[t.Dict[str, T], t.Optional[T]]:
-        fields = {}
-        left = _extract_row(fields, rowt)
-        return fields, left
-
-    def rigid_inst(fresh_vars: t.Tuple[Fresh, ...], poly: T):
-        mapping = {each: InternalVar(is_rigid=True) for each in fresh_vars}
-        return subst(mapping, poly)
-
-    def flexible_inst(fresh_vars: t.Tuple[Fresh, ...], poly: T):
-        mapping = {each: InternalVar(is_rigid=False) for each in fresh_vars}
-        return subst(mapping, poly)
-
-    def auto_inst(mapping: t.Dict[T, T], poly: T):
+    def _auto_inst(mapping: t.Dict[T, T], poly: T, paths: t.List[T],
+                   freshs: t.Tuple[Fresh]):
         """not invoked by user
         """
-        def rec_mk_world(subst_map: t.Dict[T, T], old_world_t):
-            new_world_t = subst_map.get(old_world_t)
-            if not new_world_t:
-                if isinstance(old_world_t, Var):
-                    new_world_t = subst_map[old_world_t] = InternalVar(
-                        old_world_t.is_rigid)
+        def _visit(subst_map: t.Dict[T, T], unfreshed_t: T):
+            freshed_t = subst_map.get(unfreshed_t)
+            if not freshed_t:
+                if isinstance(unfreshed_t, Var):
+                    freshed_t = subst_map[unfreshed_t] = InternalVar(
+                        unfreshed_t.is_rigid)
+                    fresh_path_dep[freshed_t] = PathKeeper(
+                        unfreshed_t, freshed_t, paths, freshs, False)
                 else:
-                    new_world_t = old_world_t
-            return subst_map, new_world_t
+                    freshed_t = unfreshed_t
 
-        return pre_visit(rec_mk_world)(mapping, poly)
+            return subst_map, freshed_t
 
-    def _unify(lhs: T, rhs: T) -> None:
+        return pre_visit(_visit)(mapping, poly)
+
+    def _unify(lhs: T, rhs: T, path_lhs: Path, path_rhs: Path) -> None:
         if lhs is rhs:
             # Nom, Fresh, Var
             return
@@ -199,70 +168,62 @@ def make(self: 'TCState', tctx: TypeCtx):
             if lhs.is_rigid:
                 if not isinstance(rhs, LeafTypes):
                     raise exc.TypeMismatch(lhs, rhs)
+
             tctx[lhs] = rhs, rhs
+            path_keeper = fresh_path_dep.get(lhs)
+            path_lhs, _ = path_infer(path_lhs)
+            if path_keeper and not path_keeper.is_finished:
+                unfreshed_path, unfreshed_t = path_infer(path_keeper.unfreshed)
+                if not ftv(unfreshed_t):
+                    path_keeper.is_finished = True
+                    del fresh_path_dep[lhs]
+                    return
+                if path_lhs is not lhs:
+                    for inner in ftv(path_lhs):
+                        fresh_path_dep[inner] = path_keeper
+
+                freshed_path, _ = path_infer(path_keeper.freshed)
+                path_keeper_paths = path_keeper.paths
+                mapping = {}
+                for i, fresh_var in zip(range(len(path_keeper_paths)),
+                                        path_keeper.freshs):
+                    track_path = path_keeper_paths[i]
+                    track_path_, _ = path_infer(track_path)
+                    path_keeper_paths[i] = track_path_
+                    mapping[track_path_] = fresh_var
+                unify(path_keeper.unfreshed,
+                      subst_or_fresh(freshed_path, mapping))
             return
 
         if isinstance(rhs, Var):
-            return _unify(rhs, lhs)
+            return _unify(rhs, lhs, path_rhs, path_lhs)
 
-        if isinstance(lhs, Forall):
-            if isinstance(rhs, Forall):
-                if lhs.scope is rhs.scope:
-                    return
-                else:
-                    K = {
-                        e: InternalVar(is_rigid=True)
-                        for e in lhs.fresh_vars + rhs.fresh_vars
-                    }
-                    l_p = auto_inst(K, lhs.poly_type)
-                    r_p = auto_inst(K, rhs.poly_type)
-            else:
-                K = {e: InternalVar(is_rigid=True) for e in lhs.fresh_vars}
-                l_p = auto_inst(K, lhs.poly_type)
-                r_p = auto_inst(K, rhs)
+        if isinstance(lhs, Forall) and isinstance(rhs, Forall):
+            # f = forall a. a -> (a -> a)
+            # g = forall b. b -> var
 
-            vars = set()
+            # f == g =>
+            # f' : i -> i -> i
+            # g' : j -> var'
+            # path of var': (var', j, [i, j], [a, b])
 
-            for k, _ in K.items():
-                if isinstance(k, Var):
-                    vars.add(k)
+            # f = forall a. (a -> a) -> a
+            # g = forall b. b -> var
 
-            if not vars:
-                # no break, no type variable in l_p or r_p
-                tmp, self.eq_fresh = self.eq_fresh, set()
-                unify(l_p, r_p)
-                self.eq_fresh = tmp
+            # f == g =>
+            # f' : (i -> i) -> i
+            # g' : j -> var'
+            # j = i -> i
+            # var' = i
+            # path of var': (var', j, [i, j], [a, b])
+
+            if lhs.scope is rhs.scope:
                 return
-
-            local_type_topo = LocalTypeTypo(K, self)
-            for var in vars:
-                var.topo_maintainers.add(local_type_topo)
-
-            local_type_topo.inner_universe.unify(l_p, r_p)
-
-            # noinspection PyUnboundLocalVariable
-            for var in vars:
-                xs = local_type_topo.update(var)  # must have been assigned, please.
-                for l, r in xs:
-                    unify(l, r)
-            return
-
-        if isinstance(rhs, Forall):
-            _unify(rhs, lhs)
-
-        if isinstance(lhs, Fresh) and isinstance(rhs, Fresh):
-            eq_fresh = self.eq_fresh
-            if not eq_fresh:
-                return
-
-            lhs, rhs = sorted((lhs, rhs))
-            look_l = eq_fresh.get(lhs)
-            if look_l:
-                if look_l is rhs:
-                    return
-                raise exc.TypeMismatch(lhs, rhs)
-
-            eq_fresh[lhs] = rhs
+            l_p, r_p = fresh(lhs.fresh_vars + rhs.fresh_vars,
+                             lhs.poly_type,
+                             rhs.poly_type,
+                             is_rigid=True)
+            unify(l_p, r_p)
             return
 
         if isinstance(lhs, Implicit) and isinstance(rhs, Implicit):
@@ -342,21 +303,17 @@ def make(self: 'TCState', tctx: TypeCtx):
 
     def unify(lhs, rhs):
 
-        _, lhs = path_infer(lhs)
-        _, rhs = path_infer(rhs)
-        _unify(lhs, rhs)
+        path_lhs, lhs = path_infer(lhs)
+        path_rhs, rhs = path_infer(rhs)
+        _unify(lhs, rhs, path_lhs, path_rhs)
 
     def infer(t):
         return path_infer(t)[1]
 
     def inst(t, rigid=False):
         if isinstance(t, Forall):
-            if rigid:
-                return rigid_inst(t.fresh_vars, t.poly_type)
-
-            return flexible_inst(t.fresh_vars, t.poly_type)
+            return fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)[0]
         return t
-
 
     self.inst = inst
     self.unify = unify
@@ -364,4 +321,4 @@ def make(self: 'TCState', tctx: TypeCtx):
     self.occur_in = occur_in
     self.extract_row = extract_row
     self.infer = infer
-
+    self.get_path_dep = lambda: fresh_path_dep

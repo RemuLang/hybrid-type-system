@@ -233,7 +233,22 @@ when auto unifying:
      "fresh variable can and can only bidirectionally equal to another fresh variable in another side."
         
         
-        
-    
+unfresh type:
+    forall a. a -> var
+
+    Forall([a], Arrow([a], var))
+
+    when frehsing,
+        Arrow([v], Unfresh([a], [v], var))
+
+    unify Unfresh(reals, paths, var1), var2
+        paths, _ = [path_infer(path)[0] for path in paths]
+        var_path1, var1 = path_infer(var1)
+        var_path2, var2 = path_infer(var2_path)
+
+
+
+
+
 
 """

@@ -2,7 +2,7 @@ from hybridts.tc_state import TCState
 from hybridts import type_encoding as te
 import sys
 
-sys.setrecursionlimit(50)
+sys.setrecursionlimit(100)
 tctx = {}
 
 tcs = TCState(tctx)
@@ -76,40 +76,18 @@ class Var(te.Var):
         return self.name
 
 int_t = te.InternalNom("int")
+
 sun = Var("sun")
 f = mk_forall(["x"], mk_arrow(mk_fresh('x'), sun))
 # print(tcs.infer(f))
 
 sam = Var("sam")
 zak = Var("zak")
+f_ = tcs.inst(f)
+tcs.unify(f_, mk_arrow(sam, zak))
 
-tcs.unify(f, mk_arrow(sam, zak))
 
 tcs.unify(zak, sam)
 
-
-
-# print('K', e.K)
-# print('J', e.J)
-# print(tcs.get_tctx())
-# print(tcs.infer(f))
-# print(tcs.infer(zak))
-
-
-
-
-
-
-# y = te.InternalVar(is_rigid=False)
-# tcs.unify(mk_arrow(tcs.inst(auto), y), tcs.inst(choose2))
-#
-# print(tcs.infer(sun))
-tcs.unify(sam, int_t)
+print(tcs.infer(f_))
 print(tcs.infer(f))
-
-
-# e = tcs.path_infer(sun)[0]
-# for k in tcs.get_tctx().keys():
-#     k: Var
-#     print(k.topo_maintainers)
-

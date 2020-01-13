@@ -24,34 +24,60 @@ Kind checker is not implemented.
 
 ```python
 from hybridts.tc_state import TCState
-from hybridts.type_encoding import row_of_map, record_of_row, poly_row, empty_row
-
+from hybridts import type_encoding as te
 tctx = {}
-
 tcs = TCState(tctx)
 
-x1 = tcs.new_var()
-x2 = tcs.new_var()
+x1 = te.InternalVar(is_rigid=False)
+x2 = te.InternalVar(is_rigid=False)
 
-int_t = tcs.mk_new_type("base.int") # nominal type
+int_t = te.InternalNom("base.int")
+
 tcs.unify(x1, int_t)
 tcs.unify(x1, x2)
 
+assert tcs.infer(x1) == int_t
+assert tcs.infer(x2) == int_t
 
-assert tcs.path_infer(x1) == int_t
-assert tcs.path_infer(x2) == int_t
-
-x3 = tcs.new_var()
-
-r1 = row_of_map({'a': x1, 'b': x3}, empty_row)
-r1 = record_of_row(r1)
-tho = tcs.new_var()
-r2 = row_of_map({'a': x3}, poly_row(tho))
-r2 = record_of_row(r2)
+x3 = te.InternalVar(is_rigid=False)
+r1 = te.row_of_map({'a': x1, 'b': x3}, te.empty_row)
+r1 = te.Record(r1)
+tho = te.InternalVar(is_rigid=False)
+r2 = te.row_of_map({'a': x3}, te.RowPoly(tho))
+r2 = te.Record(r2)
 tcs.unify(r1, r2)
-print(tcs.path_infer(r1))
-print(tcs.path_infer(r2))
+print(tcs.infer(r1)) # {b: base.int, a: base.int}
+print(tcs.infer(r2)) # {a: base.int, b: base.int}
 
-# (RecordT, (RowConsT, 'b', (NomT, 'base.int'), (RowConsT, 'a', (NomT, 'base.int'), (RowMonoT,))))
-# (RecordT, (RowConsT, 'a', (NomT, 'base.int'), (RowPolyT, (RecordT, (RowConsT, 'b', (NomT, 'base.int'), (RowMonoT,)
+
+
+int_t = te.InternalNom("int")
+
+class Var(te.Var):
+    is_rigid = False
+    def __init__(self, name):
+        self.name = name
+    __repr__ = lambda self: self.name
+
+
+ret = Var("ret")
+# f: forall x. x -> ?ret
+f = te.normalize_forall(te.InternalForallScope(""), ["x"],
+                        te.Arrow(te.UnboundFresh('x'), ret))
+
+sam = Var("sam")
+zak = Var("zak")
+
+# typeof(f_) = instantiate typeof(f)
+# f_: x' -> ?ret'
+f_ = tcs.inst(f)
+
+# x' -> ?ret' = sam -> zak
+tcs.unify(f_, te.Arrow(sam, zak))
+# zak = sam
+tcs.unify(zak, sam)
+
+print(tcs.infer(f_)) # sam -> sam
+print(tcs.infer(f)) # forall x. x -> x
+print(tcs.infer(zak)) # sam
 ```

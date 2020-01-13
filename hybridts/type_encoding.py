@@ -1,7 +1,7 @@
-from warnings import warn
-from typing_extensions import Protocol
 import abc
 import typing as t
+from hybridts import exc
+from warnings import warn
 from dataclasses import dataclass
 try:
     # noinspection PyUnresolvedReferences
@@ -38,7 +38,6 @@ class InternalForallScope(ForallGroup):
 
 class Var:
     is_rigid: bool
-    topo_maintainers: t.Set['LocalTypeTypo']
 
 
 _encode_list = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()_+{}[]|\\:;" '<,>.?/'
@@ -53,42 +52,43 @@ def _shorter_string_base(num):
         num //= _base
     return ''.join(res)
 
+
 if DEBUG:
     cnt = 0
+
     class InternalVar(Var):
         """
         This kind of type variable is not user-created, but you does can,
         if you don't mind the bad error reporting :)
         """
         is_rigid: bool
-        topo_maintainers: t.Set[t.Tuple['T', 'LocalTypeTypo']]
 
         def __init__(self, is_rigid: bool):
             global cnt
-            self.topo_maintainers = set()
             self.is_rigid = is_rigid
             self.id = cnt
             cnt += 1
 
         def __repr__(self):
-            return '<{} var|{}>'.format('rigid' if self.is_rigid else 'flexible', self.id)
+            return '<{} var|{}>'.format(
+                'rigid' if self.is_rigid else 'flexible', self.id)
 
 else:
+
     class InternalVar(Var):
         """
         This kind of type variable is not user-created, but you does can,
         if you don't mind the bad error reporting :)
         """
         is_rigid: bool
-        topo_maintainers: t.Set[t.Tuple['T', 'LocalTypeTypo']]
 
         def __init__(self, is_rigid: bool):
-            self.topo_maintainers = set()
             self.is_rigid = is_rigid
 
         def __repr__(self):
-            return '<{} var|{}>'.format('rigid' if self.is_rigid else 'flexible',
-                                        _shorter_string_base(id(self)))
+            return '<{} var|{}>'.format(
+                'rigid' if self.is_rigid else 'flexible',
+                _shorter_string_base(id(self)))
 
 
 G = t.TypeVar('G')
@@ -190,6 +190,13 @@ class Forall:
 class Record:
     row: Row
 
+    def __repr__(self):
+        fields, tho = extract_row(self.row)
+        field_str = ', '.join('{}: {!r}'.format(k, t) for k, t in fields.items())
+        if not tho:
+            return '{{{}}}'.format(field_str)
+        return '{{{}|{!r}}}'.format(field_str, tho)
+
 
 @dataclass(eq=True, frozen=True, order=True)
 class Implicit:
@@ -202,7 +209,8 @@ class UnboundFresh:
     n: str
 
 
-T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit]
+T = t.Union[App, Arrow, Var, Nom, Fresh, Tuple, Forall, Record, Implicit,
+            UnboundFresh]
 Path = t.Union[App, Arrow, Var, Fresh, Tuple, Forall, Record, Implicit]
 TypeCtx = t.Dict[Var, t.Tuple[t.Optional[Path], T]]
 Handler = t.Callable
@@ -323,5 +331,53 @@ def normalize_forall(forall_scope: ForallGroup, bounds: t.Iterable[str], poly):
     return Forall(forall_scope, tuple(maps.values()), poly)
 
 
-class OnceTypeMismatch(Exception):
-    pass
+def ftv(t):
+    vars: t.Set[Var] = set()
+
+    def _visit(t):
+        if isinstance(t, Var):
+            vars.add(t)
+        return True
+
+    visit_check(_visit)(t)
+    return vars
+
+
+def subst_or_fresh(t: T, mapping: t.Dict[T, T], fresh_caller=None):
+    mapping = dict(mapping)
+    fresh_caller = fresh_caller or (lambda: InternalVar(is_rigid=False))
+
+    def _visit(_, t):
+        v = mapping.get(t)
+        if v:
+            return (), v
+        if isinstance(t, Var):
+            v = mapping[t] = fresh_caller()
+            return (), v
+        return (), t
+
+    return pre_visit(_visit)((), t)
+
+
+def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:
+    if isinstance(rowt, RowCons):
+        field_name = rowt.field_name
+        if field_name in fields:
+            raise exc.RowFieldDuplicated(field_name)
+        fields[field_name] = rowt.field_type
+        return _extract_row(fields, rowt.tail)
+    if isinstance(rowt, RowMono):
+        return None
+    if isinstance(rowt, RowPoly):
+        tt = rowt.type
+        if isinstance(tt, Record):
+            return _extract_row(fields, tt.row)
+        return tt
+
+    raise TypeError(rowt)
+
+
+def extract_row(rowt: Row) -> t.Tuple[t.Dict[str, T], t.Optional[T]]:
+    fields = {}
+    left = _extract_row(fields, rowt)
+    return fields, left
