@@ -9,11 +9,11 @@ DEBUG = True
 
 class Fresh:
     name: str
-    scope: 'ForallGroup'
+    token: 'token'
 
-    def __init__(self, name: str, scope: 'ForallGroup'):
+    def __init__(self, name: str, token: object):
         self.name = name
-        self.scope = scope
+        self.token = token
 
     def __repr__(self):
         return self.name
@@ -170,11 +170,15 @@ class Tuple:
         return '({})'.format(', '.join(_repr_many(self.elts)))
 
 
-@dataclass(eq=True, frozen=True, order=True)
 class Forall:
-    scope: ForallGroup
+    token: object
     fresh_vars: t.Tuple[Fresh, ...]
     poly_type: 'T'
+
+    def __init__(self, token: object, fresh_vars: t.Tuple[Fresh, ...], poly_type: 'T'):
+        self.token = token
+        self.fresh_vars = fresh_vars
+        self.poly_type = poly_type
 
     def __repr__(self):
         return 'forall {}. {!r}'.format(' '.join(_repr_many(self.fresh_vars)),
@@ -187,7 +191,8 @@ class Record:
 
     def __repr__(self):
         fields, tho = extract_row(self.row)
-        field_str = ', '.join('{}: {!r}'.format(k, t) for k, t in fields.items())
+        field_str = ', '.join('{}: {!r}'.format(k, t)
+                              for k, t in fields.items())
         if not tho:
             return '{{{}}}'.format(field_str)
         return '{{{}|{!r}}}'.format(field_str, tho)
@@ -249,8 +254,10 @@ def pre_visit(f: t.Callable[[_Ctx, T], t.Tuple[_Ctx, T]]):
 
         if isinstance(root, Implicit):
             return Implicit(eval_t(root.witness), eval_t(root.type))
+
         if isinstance(root, Forall):
-            return Forall(root.scope, root.fresh_vars, root.poly_type)
+            return Forall(root.token, root.fresh_vars, eval_t(root.poly_type))
+
         if isinstance(root, Record):
             return Record(eval_row(root.row))
         raise TypeError(root)
@@ -304,16 +311,17 @@ def row_of_map(d: t.Dict[str, T], last: Row) -> Row:
     return last
 
 
-def normalize_forall(forall_scope: ForallGroup, bounds: t.Iterable[str], poly):
+def normalize_forall(bounds: t.Iterable[str], poly):
     bounds = set(bounds)
     maps = {}
+    token = object()
 
     def _visit_func(_, ty):
         if isinstance(ty, UnboundFresh):
             s = ty.n
             f_var = maps.get(s, None)
             if f_var is None:
-                f_var = maps[s] = Fresh(s, forall_scope)
+                f_var = maps[s] = Fresh(s, token)
             return (), f_var
 
         return (), ty
@@ -323,7 +331,7 @@ def normalize_forall(forall_scope: ForallGroup, bounds: t.Iterable[str], poly):
     if left:
         warn(UserWarning("Redundant free variables {}".format(left)))
 
-    return Forall(forall_scope, tuple(maps.values()), poly)
+    return Forall(token, tuple(maps.values()), poly)
 
 
 def ftv(t):
@@ -338,20 +346,66 @@ def ftv(t):
     return vars
 
 
-def subst_or_fresh(t: T, mapping: t.Dict[T, T], fresh_caller=None):
-    mapping = dict(mapping)
-    fresh_caller = fresh_caller or (lambda: InternalVar(is_rigid=False))
+def _variable_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
+    v = mapping.get(t)
+    if v:
+        return mapping, v
+    if isinstance(t, Var):
+        v = mapping[t] = InternalVar(is_rigid=False)
+        return mapping, v
+    return mapping, t
 
-    def _visit(_, t):
-        v = mapping.get(t)
-        if v:
-            return (), v
-        if isinstance(t, Var):
-            v = mapping[t] = fresh_caller()
-            return (), v
-        return (), t
 
-    return pre_visit(_visit)((), t)
+_fresh_vars = pre_visit(_variable_fresh_visitor)
+
+
+def fresh_vars(t: T, mapping=None) -> T:
+    if mapping is None:
+        mapping = {}
+    return _fresh_vars(mapping, t)
+
+
+_var_and_fresh = (Var, Fresh)
+
+
+def _variable_and_bound_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
+    v = mapping.get(t)
+    if v:
+        return mapping, v
+    if isinstance(t, _var_and_fresh):
+        v = mapping[t] = InternalVar(is_rigid=False)
+        return mapping, v
+    return mapping, t
+
+
+_fresh_vars_and_bounds = pre_visit(_variable_and_bound_fresh_visitor)
+
+
+def fresh_vars_and_bounds(t: T, mapping=None) -> T:
+    if mapping is None:
+        mapping = {}
+    return _fresh_vars_and_bounds(mapping, t)
+
+
+def _bound_but_no_var_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
+    v = mapping.get(t)
+    if v:
+        return mapping, v
+    if isinstance(t, Fresh):
+        v = mapping[t] = InternalVar(is_rigid=False)
+        return mapping, v
+    if isinstance(t, Var):
+        raise exc.ShouldntFreshVarHere
+    return mapping, t
+
+
+_fresh_bound_but_no_var = pre_visit(_variable_and_bound_fresh_visitor)
+
+
+def fresh_bound_but_no_var(t: T, mapping=None) -> T:
+    if mapping is None:
+        mapping = {}
+    return _fresh_bound_but_no_var(mapping, t)
 
 
 def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:

@@ -4,13 +4,13 @@ import typing as t
 
 
 class TCState:
-    def __init__(self, tctx: TypeCtx):
-        tc_make.make(self, tctx)
+    def __init__(self, tctx: TypeCtx, structures = None):
+        tc_make.make(self, tctx, structures)
 
     def get_tctx(self):
         raise NotImplementedError
 
-    def get_path_dep(self) -> t.Dict[Var, tc_make.PathKeeper]:
+    def get_structures(self) -> t.Dict[Var, t.Set[tc_make.StructureKeeper]]:
         raise NotImplementedError
 
     def occur_in(self, var: T, ty: T) -> bool:
@@ -21,10 +21,10 @@ class TCState:
     ) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
         raise NotImplementedError
 
-    def inst_with_fresh_map(self, poly:T) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], T]:
+    def inst_with_structure_preserved(self, maybepoly: T) -> T:
         raise NotImplementedError
 
-    def inst(self, poly: T) -> T:
+    def inst_without_structure_preserved(self, maybepoly: T) -> T:
         raise NotImplementedError
 
     def infer(self, ty: T) -> T:
@@ -45,5 +45,5 @@ class TCState:
     eq_fresh: t.Dict[Fresh, Fresh]
 
     def copy(self):
-        tcs = TCState(self.get_tctx().copy())
+        tcs = TCState(self.get_tctx().copy(), self.get_structures().copy())
         return tcs

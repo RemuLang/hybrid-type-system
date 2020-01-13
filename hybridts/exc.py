@@ -22,9 +22,18 @@ class TypeMismatch(TypeCheckError):
         self.lhs = lhs
         self.rhs = rhs
 
+
 class ForallVarExceedScope(TypeCheckError):
     forall_scope: object
     var: object
+
     def __init__(self, scope, var):
         self.forall_scope = scope
         self.var = var
+
+
+class ShouldntFreshVarHere(TypeCheckError):
+    """
+    This might be due to you're instantiating a forall type which contains
+    multiple bound variables and at least 1 free variable.
+    """

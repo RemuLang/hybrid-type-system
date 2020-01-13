@@ -20,12 +20,26 @@ auto2 : a -> a
 
 Kind checker is not implemented. 
 
+## Restrictions
+
+- Temporary restrictions: cannot automatically compute principal types, so first class polys need annotations.
+- Higher Order Unification: `TCState.inst_without_structure_preserved` only works when
+    - Any cases of unifying 2 poly types
+    - A poly type contains free type variables, to unify it with a monotype, this poly type can only hold one bound variables.
+   
+Don't do this:
+```shell script
+TCState.inst_without_structure_preserved(forall a b. a -> 'ftv) `unify` `a -> a`
+```
+      
 ## Usage
 
 ```python
-from hybridts.tc_state import TCState
 from hybridts import type_encoding as te
+from hybridts.tc_state import TCState
+
 tctx = {}
+
 tcs = TCState(tctx)
 
 x1 = te.InternalVar(is_rigid=False)
@@ -62,16 +76,14 @@ class Var(te.Var):
 
 ret = Var("ret")
 # f: forall x. x -> ?ret
-f = te.normalize_forall(te.InternalForallScope(""), ["x"],
-                        te.Arrow(te.UnboundFresh('x'), ret))
+f = te.normalize_forall(["x"], te.Arrow(te.UnboundFresh('x'), ret))
 
 sam = Var("sam")
 zak = Var("zak")
 
 # typeof(f_) = instantiate typeof(f)
 # f_: x' -> ?ret'
-f_ = tcs.inst(f)
-
+f_ = tcs.inst_with_structure_preserved(f)
 # x' -> ?ret' = sam -> zak
 tcs.unify(f_, te.Arrow(sam, zak))
 # zak = sam
@@ -80,4 +92,28 @@ tcs.unify(zak, sam)
 print(tcs.infer(f_)) # sam -> sam
 print(tcs.infer(f)) # forall x. x -> x
 print(tcs.infer(zak)) # sam
+
+ret = Var("ret")
+# f: forall x. x -> ?ret
+f = te.normalize_forall(["x", "y"],
+                        te.Arrow(
+                            te.UnboundFresh('x'),
+                            te.Tuple(
+                                (te.UnboundFresh("x"), te.UnboundFresh("y")))))
+
+sam = Var("sam")
+zak = Var("zak")
+
+# typeof(f_) = instantiate typeof(f)
+# f_: x' -> ?ret'
+f_ = tcs.inst_without_structure_preserved(f)
+
+# x' -> ?ret' = sam -> zak
+tcs.unify(f_, te.Arrow(sam, te.Tuple((sam, sam))))
+# zak = sam
+# tcs.unify(zak, sam)
+
+print(tcs.infer(f_)) # sam -> (sam, sam)
+print(tcs.infer(f)) # forall x y. x -> (x, y)
+# print(tcs.infer(zak))
 ```

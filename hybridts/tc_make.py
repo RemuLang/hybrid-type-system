@@ -1,6 +1,7 @@
 from hybridts.type_encoding import *
 from hybridts import exc
 from dataclasses import dataclass
+from collections import defaultdict
 import typing as t
 try:
     # noinspection PyUnresolvedReferences
@@ -13,25 +14,35 @@ class RowCheckFailed(Exception):
     pass
 
 
-@dataclass
-class PathKeeper:
-    unfreshed: Var
-    freshed: Var
-    paths: t.List[Path]
-    freshs: t.Tuple[Fresh, ...]
+
+class StructureKeeper:
+    template: T
+    path: T
     is_finished: bool
 
+    def __init__(self, template: T, path: T, is_finished=False):
+        self.template = template
+        self.path = path
+        self.is_finished = is_finished
 
-def make(self: 'TCState', tctx: TypeCtx):
+    def __repr__(self):
+        return 'Structure({!r} = {!r})'.format(self.template, self.path)
+
+
+def make(self: 'TCState', tctx: TypeCtx, structures: t.Dict[Var, t.Set[StructureKeeper]]):
 
     # fresh variables are guaranteed to be not free due to syntax restriction of forall
     #  thus, when proceeding unification, freshvar cannot be greater or lesser than
     #  any other type except another fresh variable.
     # However, fresh variable can only equal to another by a bidirectional name mapping
 
+    structures: t.Dict[Var, t.Set[StructureKeeper]] = structures or defaultdict(set)
     self.get_tctx = lambda: tctx
 
-    fresh_path_dep: t.Dict[Var, PathKeeper] = {}
+    # key => [(template, path)]
+    # every time, `path` gets updatd, we fresh all type variables in `path`, which
+    # produces a closed new type, and use this unify with `template`
+
 
     def subst_once(subst_map: t.Dict[T, T], ty):
         return subst_map, subst_map.get(ty, ty)
@@ -109,6 +120,8 @@ def make(self: 'TCState', tctx: TypeCtx):
                 path = None
             return path, Implicit(arg_t, ret_t)
         if isinstance(x, Tuple):
+            if not x.elts:
+                return None, x
             paths, ts = zip(*map(path_infer, x.elts))
             if all(paths):
                 path = Tuple(paths)
@@ -118,10 +131,10 @@ def make(self: 'TCState', tctx: TypeCtx):
         if isinstance(x, Forall):
             poly_path, poly_t = path_infer(x.poly_type)
             if poly_path:
-                path = Forall(x.scope, x.fresh_vars, poly_path)
+                path = Forall(x.token, x.fresh_vars, poly_path)
             else:
                 path = None
-            return path, Forall(x.scope, x.fresh_vars, poly_t)
+            return path, Forall(x.token, x.fresh_vars, poly_t)
         if isinstance(x, Record):
             path_row, row_t = infer_row(x.row)
             if not path_row:
@@ -131,33 +144,38 @@ def make(self: 'TCState', tctx: TypeCtx):
             return path, Record(row_t)
         raise TypeError(x)
 
-    def fresh(
-        fresh_vars, *types: T, is_rigid: bool
-    ) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
-        K = {e: InternalVar(is_rigid=is_rigid) for e in fresh_vars}
-        paths, freshs = zip(*[(K[each], each) for each in K])
-        paths = list(paths)
-        types = [_auto_inst(K, type, paths, freshs) for type in types]
-        return paths, freshs, types
+    def inst_forall_with_structure_preserved(polytype: T):
+        mapping: t.Dict[T, Var] = {}
+        monotype = fresh_vars_and_bounds(polytype, mapping)
+        lhs, rhs = zip(*mapping.items())
+        assert mapping
+        structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
+        for each in rhs:
+            structures[each].add(structure_keeper)
+        return monotype
 
-    def _auto_inst(mapping: t.Dict[T, T], poly: T, paths: t.List[T],
-                   freshs: t.Tuple[Fresh]):
-        """not invoked by user
+    def inst_with_structure_preserved(type) -> T:
+        if isinstance(type, Forall):
+            mapping: t.Dict[T, Var] = {}
+            type = type.poly_type
+            type = fresh_vars_and_bounds(type, mapping)
+            if mapping:
+                lhs, rhs = zip(*mapping.items())
+                structure_keeper = StructureKeeper(Tuple(lhs), Tuple(rhs))
+                for each in rhs:
+                    structures[each].add(structure_keeper)
+        return type
+
+    def inst_without_structure_preserved(type) -> T:
         """
-        def _visit(subst_map: t.Dict[T, T], unfreshed_t: T):
-            freshed_t = subst_map.get(unfreshed_t)
-            if not freshed_t:
-                if isinstance(unfreshed_t, Var):
-                    freshed_t = subst_map[unfreshed_t] = InternalVar(
-                        unfreshed_t.is_rigid)
-                    fresh_path_dep[freshed_t] = PathKeeper(
-                        unfreshed_t, freshed_t, paths, freshs, False)
-                else:
-                    freshed_t = unfreshed_t
-
-            return subst_map, freshed_t
-
-        return pre_visit(_visit)(mapping, poly)
+        When using this, there should be no free variable in the scope of forall!
+        """
+        if isinstance(type, Forall):
+            mapping: t.Dict[T, Var] = {}
+            type = type.poly_type
+            type = fresh_bound_but_no_var(type, mapping)
+            return type
+        return type
 
     def _unify(lhs: T, rhs: T, path_lhs: Path, path_rhs: Path) -> None:
         if lhs is rhs:
@@ -170,61 +188,37 @@ def make(self: 'TCState', tctx: TypeCtx):
             if lhs.is_rigid:
                 if not isinstance(rhs, LeafTypes):
                     raise exc.TypeMismatch(lhs, rhs)
+            path_rhs, _ = path_infer(rhs)
+            tctx[lhs] = (path_rhs or path_lhs), rhs
+            structure_keepers = structures.get(lhs)
+            if structure_keepers:
+                for structure_keeper in tuple(structure_keepers):
+                    if structure_keeper.is_finished:
+                        structure_keepers.remove(structure_keeper)
+                        continue
+                    else:
+                        # solve
+                        path, _ = path_infer(structure_keeper.path)
+                        structure = fresh_vars(path)
+                        unify(structure, structure_keeper.template)
 
-            tctx[lhs] = rhs, rhs
-            path_keeper = fresh_path_dep.get(lhs)
-            path_lhs, _ = path_infer(path_lhs)
-            if path_keeper and not path_keeper.is_finished:
-                unfreshed_path, unfreshed_t = path_infer(path_keeper.unfreshed)
-                if not ftv(unfreshed_t):
-                    path_keeper.is_finished = True
-                    del fresh_path_dep[lhs]
-                    return
-                if path_lhs is not lhs:
-                    for inner in ftv(path_lhs):
-                        fresh_path_dep[inner] = path_keeper
-
-                freshed_path, _ = path_infer(path_keeper.freshed)
-                path_keeper_paths = path_keeper.paths
-                mapping = {}
-                for i, fresh_var in zip(range(len(path_keeper_paths)),
-                                        path_keeper.freshs):
-                    track_path = path_keeper_paths[i]
-                    track_path_, _ = path_infer(track_path)
-                    path_keeper_paths[i] = track_path_
-                    mapping[track_path_] = fresh_var
-                unify(path_keeper.unfreshed,
-                      subst_or_fresh(freshed_path, mapping))
+                        if not ftv(infer(path)):
+                            structure_keeper.is_finished = True
+                        else:
+                            path_lhs, _ = path_infer(path_lhs)
+                            structure_keepers.remove(structure_keeper)
+                            for fv in ftv(path_lhs):
+                                structures[fv].add(structure_keeper)
             return
 
         if isinstance(rhs, Var):
             return _unify(rhs, lhs, path_rhs, path_lhs)
 
         if isinstance(lhs, Forall) and isinstance(rhs, Forall):
-            # f = forall a. a -> (a -> a)
-            # g = forall b. b -> var
-
-            # f == g =>
-            # f' : i -> i -> i
-            # g' : j -> var'
-            # path of var': (var', j, [i, j], [a, b])
-
-            # f = forall a. (a -> a) -> a
-            # g = forall b. b -> var
-
-            # f == g =>
-            # f' : (i -> i) -> i
-            # g' : j -> var'
-            # j = i -> i
-            # var' = i
-            # path of var': (var', j, [i, j], [a, b])
-
-            if lhs.scope is rhs.scope:
+            if lhs.token is rhs.token:
                 return
-            l_p, r_p = fresh(lhs.fresh_vars + rhs.fresh_vars,
-                             lhs.poly_type,
-                             rhs.poly_type,
-                             is_rigid=True)[2]
+            l_p = inst_forall_with_structure_preserved(lhs.poly_type)
+            r_p = inst_forall_with_structure_preserved(rhs.poly_type)
             unify(l_p, r_p)
             return
 
@@ -312,23 +306,11 @@ def make(self: 'TCState', tctx: TypeCtx):
     def infer(t):
         return path_infer(t)[1]
 
-    def inst(t, rigid=False):
-        if isinstance(t, Forall):
-            return fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)[2][0]
-        return t
-
-    def inst_with_fresh_map(t, rigid=False):
-        if isinstance(t, Forall):
-            a, b, c = fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)
-            return a, b, c[0]
-        return [], (), t
-
-    self.inst = inst
-    self.inst_with_fresh_map = inst_with_fresh_map
-    self.fresh = fresh
+    self.inst_with_structure_preserved = inst_with_structure_preserved
+    self.inst_without_structure_preserved = inst_without_structure_preserved
     self.unify = unify
     self.path_infer = path_infer
     self.occur_in = occur_in
     self.extract_row = extract_row
     self.infer = infer
-    self.get_path_dep = lambda: fresh_path_dep
+    self.get_structures = lambda: structures

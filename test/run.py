@@ -39,16 +39,14 @@ class Var(te.Var):
 
 ret = Var("ret")
 # f: forall x. x -> ?ret
-f = te.normalize_forall(te.InternalForallScope(""), ["x"],
-                        te.Arrow(te.UnboundFresh('x'), ret))
+f = te.normalize_forall(["x"], te.Arrow(te.UnboundFresh('x'), ret))
 
 sam = Var("sam")
 zak = Var("zak")
 
 # typeof(f_) = instantiate typeof(f)
 # f_: x' -> ?ret'
-f_ = tcs.inst(f)
-
+f_ = tcs.inst_with_structure_preserved(f)
 # x' -> ?ret' = sam -> zak
 tcs.unify(f_, te.Arrow(sam, zak))
 # zak = sam
@@ -60,17 +58,18 @@ print(tcs.infer(zak))
 
 ret = Var("ret")
 # f: forall x. x -> ?ret
-f = te.normalize_forall(
-    te.InternalForallScope(""), ["x", "y"],
-    te.Arrow(te.UnboundFresh('x'),
-             te.Tuple((te.UnboundFresh("x"), te.UnboundFresh("y")))))
+f = te.normalize_forall(["x", "y"],
+                        te.Arrow(
+                            te.UnboundFresh('x'),
+                            te.Tuple(
+                                (te.UnboundFresh("x"), te.UnboundFresh("y")))))
 
 sam = Var("sam")
 zak = Var("zak")
 
 # typeof(f_) = instantiate typeof(f)
 # f_: x' -> ?ret'
-f_ = tcs.inst(f)
+f_ = tcs.inst_without_structure_preserved(f)
 
 # x' -> ?ret' = sam -> zak
 tcs.unify(f_, te.Arrow(sam, te.Tuple((sam, sam))))

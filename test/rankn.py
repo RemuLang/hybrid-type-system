@@ -39,15 +39,11 @@ sun = te.InternalVar(is_rigid=False)
 # forall a. a -> a
 
 mk_fresh = lambda x: te.UnboundFresh(x)
-bot = te.normalize_forall(te.InternalForallScope("bot"), ['a'], mk_fresh("a"))
+bot = te.normalize_forall(['a'], mk_fresh("a"))
 
-cnt = 0
+
 def mk_forall(xs, t: te.T, name=None):
-    global cnt
-    if not name:
-        cnt += 1
-        name = str(cnt)
-    return te.normalize_forall(te.InternalForallScope(name), xs, t)
+    return te.normalize_forall(xs, t)
 
 
 mk_arrow = lambda x, y: te.Arrow(x, y)
@@ -67,13 +63,16 @@ mk_arrow = lambda x, y: te.Arrow(x, y)
 
 # skip
 
+
 class Var(te.Var):
     def __init__(self, name):
         self.is_rigid = False
         self.topo_maintainers = set()
         self.name = name
+
     def __repr__(self):
         return self.name
+
 
 int_t = te.InternalNom("int")
 
@@ -83,9 +82,8 @@ f = mk_forall(["x"], mk_arrow(mk_fresh('x'), sun))
 
 sam = Var("sam")
 zak = Var("zak")
-f_ = tcs.inst(f)
+f_ = tcs.inst_with_structure_preserved(f)
 tcs.unify(f_, mk_arrow(sam, zak))
-
 
 tcs.unify(zak, sam)
 
@@ -93,6 +91,7 @@ print(tcs.infer(f_))
 print(tcs.infer(f))
 
 print('===')
-deps = tcs.get_path_dep()
-for ftv in te.ftv(f_):
-    print(deps.get(ftv))
+deps = tcs.get_structures()
+
+# for ftv in te.ftv(f_):
+#     print(deps.get(ftv))
