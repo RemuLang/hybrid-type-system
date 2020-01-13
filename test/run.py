@@ -1,5 +1,6 @@
-from hybridts.tc_state import TCState
 from hybridts import type_encoding as te
+from hybridts.tc_state import TCState
+
 tctx = {}
 
 tcs = TCState(tctx)
@@ -56,3 +57,26 @@ tcs.unify(zak, sam)
 print(tcs.infer(f_))
 print(tcs.infer(f))
 print(tcs.infer(zak))
+
+ret = Var("ret")
+# f: forall x. x -> ?ret
+f = te.normalize_forall(
+    te.InternalForallScope(""), ["x", "y"],
+    te.Arrow(te.UnboundFresh('x'),
+             te.Tuple((te.UnboundFresh("x"), te.UnboundFresh("y")))))
+
+sam = Var("sam")
+zak = Var("zak")
+
+# typeof(f_) = instantiate typeof(f)
+# f_: x' -> ?ret'
+f_ = tcs.inst(f)
+
+# x' -> ?ret' = sam -> zak
+tcs.unify(f_, te.Arrow(sam, te.Tuple((sam, sam))))
+# zak = sam
+# tcs.unify(zak, sam)
+
+print(tcs.infer(f_))
+print(tcs.infer(f))
+# print(tcs.infer(zak))

@@ -3,11 +3,6 @@ import typing as t
 from hybridts import exc
 from warnings import warn
 from dataclasses import dataclass
-try:
-    # noinspection PyUnresolvedReferences
-    from hybridts.tc_state import LocalTypeTypo
-except ImportError:
-    pass
 
 DEBUG = True
 
