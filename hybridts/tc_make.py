@@ -131,12 +131,14 @@ def make(self: 'TCState', tctx: TypeCtx):
             return path, Record(row_t)
         raise TypeError(x)
 
-    def fresh(fresh_vars, *types: T, is_rigid: bool) -> t.List[T]:
+    def fresh(
+        fresh_vars, *types: T, is_rigid: bool
+    ) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
         K = {e: InternalVar(is_rigid=is_rigid) for e in fresh_vars}
         paths, freshs = zip(*[(K[each], each) for each in K])
         paths = list(paths)
         types = [_auto_inst(K, type, paths, freshs) for type in types]
-        return types
+        return paths, freshs, types
 
     def _auto_inst(mapping: t.Dict[T, T], poly: T, paths: t.List[T],
                    freshs: t.Tuple[Fresh]):
@@ -222,7 +224,7 @@ def make(self: 'TCState', tctx: TypeCtx):
             l_p, r_p = fresh(lhs.fresh_vars + rhs.fresh_vars,
                              lhs.poly_type,
                              rhs.poly_type,
-                             is_rigid=True)
+                             is_rigid=True)[2]
             unify(l_p, r_p)
             return
 
@@ -312,10 +314,11 @@ def make(self: 'TCState', tctx: TypeCtx):
 
     def inst(t, rigid=False):
         if isinstance(t, Forall):
-            return fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)[0]
+            return fresh(t.fresh_vars, t.poly_type, is_rigid=rigid)[2][0]
         return t
 
     self.inst = inst
+    self.fresh = fresh
     self.unify = unify
     self.path_infer = path_infer
     self.occur_in = occur_in

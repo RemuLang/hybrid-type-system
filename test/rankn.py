@@ -91,3 +91,8 @@ tcs.unify(zak, sam)
 
 print(tcs.infer(f_))
 print(tcs.infer(f))
+
+print('===')
+deps = tcs.get_path_dep()
+for ftv in te.ftv(f_):
+    print(deps.get(ftv))

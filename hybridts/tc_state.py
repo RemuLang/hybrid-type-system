@@ -16,6 +16,11 @@ class TCState:
     def occur_in(self, var: T, ty: T) -> bool:
         raise NotImplementedError
 
+    def fresh(
+        fresh_vars: t.Tuple[Fresh, ...], *types: T, is_rigid: bool
+    ) -> t.Tuple[t.List[Path], t.Tuple[Fresh, ...], t.List[T]]:
+        raise NotImplementedError
+
     def inst(self, poly: T) -> T:
         raise NotImplementedError
 
