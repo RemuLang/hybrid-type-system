@@ -26,6 +26,7 @@ Kind checker is not implemented.
 - Higher Order Unification: `TCState.inst_without_structure_preserved` only works when
     - Any cases of unifying 2 poly types
     - A poly type contains free type variables, to unify it with a monotype, this poly type can only hold one bound variables.
+    - Unifying a monotype with, a poly type without free type variables.
    
 Don't do this:
 ```shell script
