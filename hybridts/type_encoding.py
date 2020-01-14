@@ -364,72 +364,23 @@ def fresh_ftv(t: T, mapping=None) -> t.Tuple[t.Dict[Var, Var], T]:
 _var_and_fresh = (Var, Fresh)
 
 
-def _variable_and_bound_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
-    v = mapping.get(t)
-    if v:
-        return mapping, v
-    if isinstance(t, Fresh):
-        v = mapping[t] = InternalVar(is_rigid=False)
-        return mapping, v
-    if isinstance(t, Var):
-        v = mapping[t] = InternalVar(is_rigid=t.is_rigid)
-        return mapping, v
-    return mapping, t
-
-
-_fresh_vars_and_bounds = pre_visit(_variable_and_bound_fresh_visitor)
-
-
-def fresh_vars_and_bounds(t: T, mapping=None) -> t.Tuple[t.Dict[t.Union[Fresh, Var], Var], T]:
-    if mapping is None:
-        mapping = {}
-    return mapping, _fresh_vars_and_bounds(mapping, t)
-
-
 def _bound_but_no_var_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
     v = mapping.get(t)
     if v:
-        return mapping, v
-    if isinstance(t, Fresh):
-        v = mapping[t] = InternalVar(is_rigid=False)
         return mapping, v
     if isinstance(t, Var):
         raise exc.ShouldntFreshVarHere
     return mapping, t
 
 
-_fresh_bound_but_no_var = pre_visit(_variable_and_bound_fresh_visitor)
+_fresh_bound_but_no_var = pre_visit(_bound_but_no_var_fresh_visitor)
 
 
-def fresh_bound_but_no_var(t: T, mapping=None) -> t.Tuple[t.Dict[Fresh, Var], T]:
+def just_fresh_bounds(t: T, mapping=None) -> t.Tuple[t.Dict[Fresh, Var], T]:
     if mapping is None:
         mapping = {}
     return mapping, _fresh_bound_but_no_var(mapping, t)
 
-
-
-def _rigid_variable_and_bound_fresh_visitor(mapping: dict,
-                                            t: 'T') -> t.Tuple[dict, 'T']:
-    v = mapping.get(t)
-    if v:
-        return mapping, v
-    if isinstance(t, Var):
-        v = mapping[t] = InternalVar(is_rigid=t.is_rigid)
-        return mapping, v
-    if isinstance(t, Fresh):
-        v = mapping[t] = InternalVar(is_rigid=True)
-        return mapping, v
-
-    return mapping, t
-
-
-_rigid_fresh_vars_and_bounds = pre_visit(_rigid_variable_and_bound_fresh_visitor)
-
-
-def rigid_fresh_vars_and_bounds(t: T, mapping=None) -> t.Tuple[t.Dict[t.Union[Fresh, Var], Var], T]:
-    if mapping is None:
-        mapping = {}
-    return mapping, _rigid_fresh_vars_and_bounds(mapping, t)
 
 
 def _extract_row(fields: t.Dict[str, T], rowt: Row) -> t.Optional[T]:

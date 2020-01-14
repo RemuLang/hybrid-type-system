@@ -225,9 +225,9 @@ def make(self: 'TCState', tctx: TypeCtx,
             return path, Record(row_t)
         raise TypeError(x)
 
-    def inst_forall_with_structure_preserved(polytype: T):
-        mapping: t.Dict[T, Var] = {}
-        _, monotype = rigid_fresh_vars_and_bounds(polytype, mapping)
+    def inst_forall_with_structure_preserved(bound_vars: t.Iterable[Fresh], polytype: T):
+        mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in bound_vars}
+        _, monotype = fresh_ftv(polytype, mapping)
         lhs, rhs = zip(*mapping.items())
         assert mapping
         structure_keeper = RigidStructureKeeper(Tuple(lhs), Tuple(rhs))
@@ -239,10 +239,10 @@ def make(self: 'TCState', tctx: TypeCtx,
                                       rigid=False
                                       ) -> t.Tuple[t.Dict[T, Var], T]:
         if isinstance(type, Forall):
-            mapping: t.Dict[T, Var] = {}
-            type = type.poly_type
+            poly_type = type.poly_type
             if rigid:
-                _, type = rigid_fresh_vars_and_bounds(type, mapping)
+                mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in type.fresh_vars}
+                _, poly_type = fresh_ftv(poly_type, mapping)
                 if mapping:
                     lhs, rhs = zip(*mapping.items())
                     structure_keeper = RigidStructureKeeper(
@@ -250,28 +250,29 @@ def make(self: 'TCState', tctx: TypeCtx,
                     for each in rhs:
                         structures[each].add(structure_keeper)
             else:
-                _, type = fresh_vars_and_bounds(type, mapping)
+                mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=False) for b in type.fresh_vars}
+                _, poly_type = fresh_ftv(poly_type, mapping)
 
-                if mapping:
-                    vars = {}
-                    freshes = {}
-                    for k, v in mapping.items():
-                        if isinstance(k, Var):
-                            kv = vars
-                        else:
-                            assert isinstance(k, Fresh)
-                            kv = freshes
-                        kv[k] = v
-                    if not vars:
-                        return mapping, type
+                vars = {}
+                freshes = {}
+                for k, v in mapping.items():
+                    if isinstance(k, Var):
+                        kv = vars
+                    else:
+                        assert isinstance(k, Fresh)
+                        kv = freshes
+                    kv[k] = v
+                if not vars:
+                    return mapping, poly_type
 
-                    freshes, fresh_paths = zip(*freshes.items())
-                    vars, var_paths = zip(*vars.items())
-                    structure_keeper = FlexibleStructureKeeper(
-                        list(freshes), list(vars), list(fresh_paths),
-                        list(var_paths))
-                    for each in mapping.values():
-                        structures[each].add(structure_keeper)
+                freshes, fresh_paths = zip(*freshes.items())
+                vars, var_paths = zip(*vars.items())
+                structure_keeper = FlexibleStructureKeeper(
+                    list(freshes), list(vars), list(fresh_paths),
+                    list(var_paths))
+                for each in mapping.values():
+                    structures[each].add(structure_keeper)
+            type = poly_type
         else:
             mapping = {}
         return mapping, type
@@ -281,9 +282,9 @@ def make(self: 'TCState', tctx: TypeCtx,
         When using this, there should be no free variable in the scope of forall!
         """
         if isinstance(type, Forall):
-            mapping: t.Dict[T, Var] = {}
+            mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=False) for b in type.fresh_vars}
             type = type.poly_type
-            _, type = fresh_bound_but_no_var(type, mapping)
+            _, type = just_fresh_bounds(type, mapping)
             return mapping, type
         return {}, type
 
