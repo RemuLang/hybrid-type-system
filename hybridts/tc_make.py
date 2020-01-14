@@ -227,7 +227,7 @@ def make(self: 'TCState', tctx: TypeCtx,
 
     def inst_forall_with_structure_preserved(bound_vars: t.Iterable[Fresh], polytype: T):
         mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in bound_vars}
-        _, monotype = fresh_ftv(polytype, mapping)
+        _, monotype = just_fresh_bounds(polytype, mapping)
         lhs, rhs = zip(*mapping.items())
         assert mapping
         structure_keeper = RigidStructureKeeper(Tuple(lhs), Tuple(rhs))

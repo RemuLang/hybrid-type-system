@@ -368,8 +368,10 @@ def _bound_but_no_var_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']
     v = mapping.get(t)
     if v:
         return mapping, v
-    if isinstance(t, Var):
-        raise exc.ShouldntFreshVarHere
+    # FIXME: just allow mono referencing?
+    # if isinstance(t, Var):
+    #     pass
+    #     raise exc.ShouldntFreshVarHere
     return mapping, t
 
 
