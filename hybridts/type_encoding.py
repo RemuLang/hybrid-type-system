@@ -365,15 +365,7 @@ _var_and_fresh = (Var, Fresh)
 
 
 def _bound_but_no_var_fresh_visitor(mapping: dict, t: 'T') -> t.Tuple[dict, 'T']:
-    v = mapping.get(t)
-    if v:
-        return mapping, v
-    # FIXME: just allow mono referencing?
-    # if isinstance(t, Var):
-    #     pass
-    #     raise exc.ShouldntFreshVarHere
-    return mapping, t
-
+    return mapping, mapping.get(t, t)
 
 _fresh_bound_but_no_var = pre_visit(_bound_but_no_var_fresh_visitor)
 

@@ -242,7 +242,7 @@ def make(self: 'TCState', tctx: TypeCtx,
             poly_type = type.poly_type
             if rigid:
                 mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in type.fresh_vars}
-                _, poly_type = fresh_ftv(poly_type, mapping)
+                _, poly_type = just_fresh_bounds(poly_type, mapping)
                 if mapping:
                     lhs, rhs = zip(*mapping.items())
                     structure_keeper = RigidStructureKeeper(
@@ -251,7 +251,7 @@ def make(self: 'TCState', tctx: TypeCtx,
                         structures[each].add(structure_keeper)
             else:
                 mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=False) for b in type.fresh_vars}
-                _, poly_type = fresh_ftv(poly_type, mapping)
+                _, poly_type = just_fresh_bounds(poly_type, mapping)
 
                 vars = {}
                 freshes = {}
@@ -315,9 +315,6 @@ def make(self: 'TCState', tctx: TypeCtx,
             return _unify(rhs, lhs, path_rhs, path_lhs)
 
         if isinstance(lhs, Forall) and isinstance(rhs, Forall):
-            if lhs.token is rhs.token:
-                return
-
             l_p = inst_forall_with_structure_preserved(lhs.fresh_vars, lhs.poly_type)
             r_p = inst_forall_with_structure_preserved(rhs.fresh_vars, rhs.poly_type)
             unify(l_p, r_p)
