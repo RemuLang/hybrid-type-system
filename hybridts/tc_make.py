@@ -317,8 +317,9 @@ def make(self: 'TCState', tctx: TypeCtx,
         if isinstance(lhs, Forall) and isinstance(rhs, Forall):
             if lhs.token is rhs.token:
                 return
-            l_p = inst_forall_with_structure_preserved(lhs.poly_type)
-            r_p = inst_forall_with_structure_preserved(rhs.poly_type)
+
+            l_p = inst_forall_with_structure_preserved(lhs.fresh_vars, lhs.poly_type)
+            r_p = inst_forall_with_structure_preserved(rhs.fresh_vars, rhs.poly_type)
             unify(l_p, r_p)
             return
 
@@ -333,6 +334,10 @@ def make(self: 'TCState', tctx: TypeCtx,
         if isinstance(rhs, Implicit):
             return unify(lhs, rhs.type)
 
+        if isinstance(lhs, Fresh) and isinstance(rhs, Fresh):
+            if lhs.token is rhs.token and lhs.name == rhs.name:
+                return
+            raise exc.TypeMismatch(lhs, rhs)
         if isinstance(lhs, Arrow) and isinstance(rhs, Arrow):
             unify(lhs.arg, rhs.arg)
             unify(lhs.ret, rhs.ret)
