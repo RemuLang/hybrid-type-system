@@ -20,90 +20,104 @@ class StructureKeeper:
         raise NotImplementedError
 
 
-class FlexibleStructureKeeper(StructureKeeper):
-    freshes: t.List[Fresh]
-    vars: t.List[Var]
-    fresh_pathes: t.List[T]
-    var_paths: t.List[T]
-    is_finished: bool
+# class FlexibleStructureKeeper(StructureKeeper):
+#     freshes: t.List[Fresh]
+#     vars: t.List[Var]
+#     fresh_pathes: t.List[T]
+#     var_paths: t.List[T]
+#     is_finished: bool
+#
+#     def __init__(self, freshes: t.List[Fresh], vars: t.List[Var],
+#                  fresh_pathes: t.List[T], var_paths: t.List[T]):
+#         self.freshes = freshes
+#         self.vars = vars
+#         self.fresh_pathes = fresh_pathes
+#         self.var_paths = var_paths
+#         self.is_finished = False
+#
+#     def __repr__(self):
+#         # TODO
+#         return 'FlexibleStructure({!r} = {!r} ~ {!r} = {!r})'.format(
+#             self.freshes, self.fresh_pathes, self.vars, self.var_paths)
+#
+#     def update(self, tcs: 'TCState', path_lhs: Path) -> None:
+#         var_paths = tuple(tcs.path_infer(path)[0] for path in self.var_paths)
+#         fresh_paths = tuple(
+#             tcs.path_infer(path)[0] for path in self.fresh_pathes)
+#
+#         lookup = {k: v for k, v in zip(fresh_paths, self.freshes)}
+#
+#         def subst(_, t):
+#             return (), lookup.get(t, t)
+#
+#         vars_path_tp = Tuple(var_paths)
+#         vars_path_tp = pre_visit(subst)((), tcs.infer(vars_path_tp))
+#
+#         for var, each in zip(self.vars, vars_path_tp.elts):
+#             tcs.unify(var, each)
+#
+#         vars_ftv = ftv(vars_path_tp)
+#         if not vars_ftv:
+#             self.is_finished = True
+#         # TODO:
+#         # forall a. a -> var
+#         # unify with ('i -> 'j) -> ('j -> 'i), where
+#         #     'i, 'j are variables,
+#         # this certainly can be true, unless
+#         #   infer(i') != infer('j)   and
+#         #   infer(i') = some non-var and
+#         #   infer(j') = some non-var
+#
+#         else:
+#             # fresh_paths_ftv = ftv(Tuple(fresh_paths))
+#             # if fresh_paths_ftv.issuperset(vars_ftv):
+#             #     raise exc.StructureCannotUnify(vars)
+#             path_lhs, _ = tcs.path_infer(path_lhs)
+#             structures = tcs.get_structures()
+#             for fv in ftv(path_lhs):
+#                 structures[fv].add(self)
 
-    def __init__(self, freshes: t.List[Fresh], vars: t.List[Var],
-                 fresh_pathes: t.List[T], var_paths: t.List[T]):
-        self.freshes = freshes
-        self.vars = vars
-        self.fresh_pathes = fresh_pathes
-        self.var_paths = var_paths
-        self.is_finished = False
-
-    def __repr__(self):
-        # TODO
-        return 'FlexibleStructure({!r} = {!r} ~ {!r} = {!r})'.format(
-            self.freshes, self.fresh_pathes, self.vars, self.var_paths)
-
-    def update(self, tcs: 'TCState', path_lhs: Path) -> None:
-        var_paths = tuple(tcs.path_infer(path)[0] for path in self.var_paths)
-        fresh_paths = tuple(
-            tcs.path_infer(path)[0] for path in self.fresh_pathes)
-
-        lookup = {k: v for k, v in zip(fresh_paths, self.freshes)}
-
-        def subst(_, t):
-            return (), lookup.get(t, t)
-
-        vars_path_tp = Tuple(var_paths)
-        vars_path_tp = pre_visit(subst)((), tcs.infer(vars_path_tp))
-
-        for var, each in zip(self.vars, vars_path_tp.elts):
-            tcs.unify(var, each)
-
-        vars_ftv = ftv(vars_path_tp)
-        if not vars_ftv:
-            self.is_finished = True
-        # TODO:
-        # forall a. a -> var
-        # unify with ('i -> 'j) -> ('j -> 'i), where
-        #     'i, 'j are variables,
-        # this certainly can be true, unless
-        #   infer(i') != infer('j)   and
-        #   infer(i') = some non-var and
-        #   infer(j') = some non-var
-
-        else:
-            # fresh_paths_ftv = ftv(Tuple(fresh_paths))
-            # if fresh_paths_ftv.issuperset(vars_ftv):
-            #     raise exc.StructureCannotUnify(vars)
-            path_lhs, _ = tcs.path_infer(path_lhs)
-            structures = tcs.get_structures()
-            for fv in ftv(path_lhs):
-                structures[fv].add(self)
+# class RigidStructureKeeper(StructureKeeper):
+#     template: T
+#     path: T
+#     is_finished: bool
+#
+#     def __init__(self, template: T, path: T):
+#         self.template = template
+#         self.path = path
+#         self.is_finished = False
+#
+#     def __repr__(self):
+#         return 'RigidStructure({!r} = {!r})'.format(self.template, self.path)
+#
+#     def update(self, tcs: 'TCState', path_lhs: Path) -> None:
+#         path, _ = tcs.path_infer(self.path)
+#         _, structure = fresh_ftv(path)
+#
+#         tcs.unify(structure, self.template)
+#
+#         if not ftv(tcs.infer(self.template)):
+#             self.is_finished = True
+#         else:
+#             path_lhs, _ = tcs.path_infer(path_lhs)
+#             structures = tcs.get_structures()
+#             for fv in ftv(path_lhs):
+#                 structures[fv].add(self)
 
 
-class RigidStructureKeeper(StructureKeeper):
-    template: T
-    path: T
-    is_finished: bool
+def update(tcs: 'TCState', bounds, vars, freshed_bounds, freshed_vars) -> None:
 
-    def __init__(self, template: T, path: T):
-        self.template = template
-        self.path = path
-        self.is_finished = False
+    left = Tuple(bounds + vars)
+    right = Tuple(freshed_bounds + freshed_vars)
+    path, _ = tcs.path_infer(right)
+    rev_map, structure = fresh_ftv(path)
+    tcs.unify(left, structure)
 
-    def __repr__(self):
-        return 'RigidStructure({!r} = {!r})'.format(self.template, self.path)
-
-    def update(self, tcs: 'TCState', path_lhs: Path) -> None:
-        path, _ = tcs.path_infer(self.path)
-        _, structure = fresh_ftv(path)
-
-        tcs.unify(structure, self.template)
-
-        if not ftv(tcs.infer(path)):
-            self.is_finished = True
-        else:
-            path_lhs, _ = tcs.path_infer(path_lhs)
-            structures = tcs.get_structures()
-            for fv in ftv(path_lhs):
-                structures[fv].add(self)
+    ftv_vars = ftv(tcs.infer(structure))
+    if ftv_vars:
+        resume = {tcs.infer(v): k for k, v in rev_map.items()}
+        for ftv_var in ftv_vars:
+            tcs.unify(resume[ftv_var], ftv_var)
 
 
 def make(self: 'TCState', tctx: TypeCtx,
@@ -225,64 +239,77 @@ def make(self: 'TCState', tctx: TypeCtx,
             return path, Record(row_t)
         raise TypeError(x)
 
-    def inst_forall_with_structure_preserved(bound_vars: t.Iterable[Fresh], polytype: T):
-        mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in bound_vars}
-        _, monotype = just_fresh_bounds(polytype, mapping)
-        lhs, rhs = zip(*mapping.items())
-        assert mapping
-        structure_keeper = RigidStructureKeeper(Tuple(lhs), Tuple(rhs))
-        for each in rhs:
-            structures[each].add(structure_keeper)
-        return monotype
+    def inst_forall_with_structure_preserved(bound_vars: t.Iterable[Fresh],
+                                             polytype: T):
+        mapping: t.Dict[T, Var] = {
+            b: InternalVar(is_rigid=True)
+            for b in bound_vars
+        }
+        vars: t.Dict[Var, Var] = {}
+        chain = ChainMap(vars, mapping)
+        # forall a. var -> a
+        # forall b. b -> b
+        # var -> i
+        # j -> j
+        _, monotype = fresh_ftv(polytype, chain)
+        # lhs, rhs = zip(*mapping.items())
+        # assert mapping
+        # structure_keeper = RigidStructureKeeper(Tuple(lhs), Tuple(rhs))
+        # for each in rhs:
+        #     structures[each].add(structure_keeper)
+        return mapping, vars, monotype
 
-    def inst_with_structure_preserved(type,
-                                      rigid=False
-                                      ) -> t.Tuple[t.Dict[T, Var], T]:
-        if isinstance(type, Forall):
-            poly_type = type.poly_type
-            if rigid:
-                mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in type.fresh_vars}
-                _, poly_type = just_fresh_bounds(poly_type, mapping)
-                if mapping:
-                    lhs, rhs = zip(*mapping.items())
-                    structure_keeper = RigidStructureKeeper(
-                        Tuple(lhs), Tuple(rhs))
-                    for each in rhs:
-                        structures[each].add(structure_keeper)
-            else:
-                mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=False) for b in type.fresh_vars}
-                _, poly_type = just_fresh_bounds(poly_type, mapping)
-
-                vars = {}
-                freshes = {}
-                for k, v in mapping.items():
-                    if isinstance(k, Var):
-                        kv = vars
-                    else:
-                        assert isinstance(k, Fresh)
-                        kv = freshes
-                    kv[k] = v
-                if not vars:
-                    return mapping, poly_type
-
-                freshes, fresh_paths = zip(*freshes.items())
-                vars, var_paths = zip(*vars.items())
-                structure_keeper = FlexibleStructureKeeper(
-                    list(freshes), list(vars), list(fresh_paths),
-                    list(var_paths))
-                for each in mapping.values():
-                    structures[each].add(structure_keeper)
-            type = poly_type
-        else:
-            mapping = {}
-        return mapping, type
+    # def inst_with_structure_preserved(type,
+    #                                   rigid=False
+    #                                   ) -> t.Tuple[t.Dict[T, Var], T]:
+    #     if isinstance(type, Forall):
+    #         poly_type = type.poly_type
+    #         if rigid:
+    #             mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=True) for b in type.fresh_vars}
+    #             _, poly_type = just_fresh_bounds(poly_type, mapping)
+    #             if mapping:
+    #                 lhs, rhs = zip(*mapping.items())
+    #                 structure_keeper = RigidStructureKeeper(
+    #                     Tuple(lhs), Tuple(rhs))
+    #                 for each in rhs:
+    #                     structures[each].add(structure_keeper)
+    #         else:
+    #             mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=False) for b in type.fresh_vars}
+    #             _, poly_type = just_fresh_bounds(poly_type, mapping)
+    #
+    #             vars = {}
+    #             freshes = {}
+    #             for k, v in mapping.items():
+    #                 if isinstance(k, Var):
+    #                     kv = vars
+    #                 else:
+    #                     assert isinstance(k, Fresh)
+    #                     kv = freshes
+    #                 kv[k] = v
+    #             if not vars:
+    #                 return mapping, poly_type
+    #
+    #             freshes, fresh_paths = zip(*freshes.items())
+    #             vars, var_paths = zip(*vars.items())
+    #             structure_keeper = FlexibleStructureKeeper(
+    #                 list(freshes), list(vars), list(fresh_paths),
+    #                 list(var_paths))
+    #             for each in mapping.values():
+    #                 structures[each].add(structure_keeper)
+    #         type = poly_type
+    #     else:
+    #         mapping = {}
+    #     return mapping, type
 
     def inst_without_structure_preserved(type) -> t.Tuple[t.Dict[T, Var], T]:
         """
         When using this, there should be no free variable in the scope of forall!
         """
         if isinstance(type, Forall):
-            mapping: t.Dict[T, Var] = {b: InternalVar(is_rigid=False) for b in type.fresh_vars}
+            mapping: t.Dict[T, Var] = {
+                b: InternalVar(is_rigid=False)
+                for b in type.fresh_vars
+            }
             type = type.poly_type
             _, type = just_fresh_bounds(type, mapping)
             return mapping, type
@@ -315,9 +342,19 @@ def make(self: 'TCState', tctx: TypeCtx,
             return _unify(rhs, lhs, path_rhs, path_lhs)
 
         if isinstance(lhs, Forall) and isinstance(rhs, Forall):
-            l_p = inst_forall_with_structure_preserved(lhs.fresh_vars, lhs.poly_type)
-            r_p = inst_forall_with_structure_preserved(rhs.fresh_vars, rhs.poly_type)
+            freshes_l, vars_l, l_p = inst_forall_with_structure_preserved(
+                lhs.fresh_vars, lhs.poly_type)
+            freshes_r, vars_r, r_p = inst_forall_with_structure_preserved(
+                rhs.fresh_vars, rhs.poly_type)
             unify(l_p, r_p)
+            if vars_l:
+                a, b = zip(*freshes_l.items())
+                c, d = zip(*vars_l.items())
+                update(self, a, c, b, d)
+            if vars_r:
+                a, b = zip(*freshes_r.items())
+                c, d = zip(*vars_r.items())
+                update(self, a, c, b, d)
             return
 
         if isinstance(lhs, Implicit) and isinstance(rhs, Implicit):
@@ -408,7 +445,7 @@ def make(self: 'TCState', tctx: TypeCtx,
     def infer(t):
         return path_infer(t)[1]
 
-    self.inst_with_structure_preserved = inst_with_structure_preserved
+    # self.inst_with_structure_preserved = inst_with_structure_preserved
     self.inst_without_structure_preserved = inst_without_structure_preserved
     self.unify = unify
     self.path_infer = path_infer

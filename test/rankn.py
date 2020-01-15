@@ -82,22 +82,16 @@ f = mk_forall(["x"], mk_arrow(mk_fresh('x'), sun))
 
 sam = Var("sam")
 zak = Var("zak")
-_, f_ = tcs.inst_with_structure_preserved(f)
+_, f_ = tcs.inst_without_structure_preserved(f)
 tcs.unify(f_, mk_arrow(sam, zak))
 
-tcs.unify(zak, sam)
+tcs.unify(zak, int_t)
 
 print(tcs.infer(f_))
 print(tcs.infer(f))
+print(tcs.infer(zak))
 
-print('===')
-deps = tcs.get_structures()
-for k, v in deps.items():
-    print(k)
-    print(v)
 
-for k, (v, c) in tcs.get_tctx().items():
-    print(k, v, c)
 
 
 # auto = mk_forall(["x"], mk_arrow(mk_fresh('x'), mk_fresh("x")))

@@ -10,7 +10,7 @@ class TCState:
     def get_tctx(self):
         raise NotImplementedError
 
-    def get_structures(self) -> t.Dict[Var, t.Set[tc_make.StructureKeeper]]:
+    def get_structures(self) -> t.Dict[Var, t.Set['tc_make.StructureKeeper']]:
         raise NotImplementedError
 
     def occur_in(self, var: T, ty: T) -> bool:
