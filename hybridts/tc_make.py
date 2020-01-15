@@ -236,7 +236,16 @@ def make(self: 'TCState', tctx: TypeCtx,
                 path = None
             else:
                 path = Record(path_row)
-            return path, Record(row_t)
+
+            if isinstance(path_row, RowPoly):
+                path = path_row.type
+
+            if isinstance(row_t, RowPoly):
+                type = row_t.type
+            else:
+                type = Record(row_t)
+
+            return path, type
         raise TypeError(x)
 
     def inst_forall_with_structure_preserved(bound_vars: t.Iterable[Fresh],
