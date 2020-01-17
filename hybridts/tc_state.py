@@ -16,6 +16,9 @@ class TCState:
     def occur_in(self, var: T, ty: T) -> bool:
         raise NotImplementedError
 
+    def relink(self, var: Var, ty: T):
+        raise NotImplementedError
+
     def inst_with_structure_preserved(self, maybepoly: T, rigid=False) -> t.Tuple[t.Dict[T, Var], T]:
         raise NotImplementedError
 

@@ -451,6 +451,10 @@ def make(self: 'TCState', tctx: TypeCtx,
         return path_infer(t)[1]
 
     # self.inst_with_structure_preserved = inst_with_structure_preserved
+    def relink(var: Var, t: T):
+        tctx[var] = path_infer(t)
+
+    self.relink = relink
     self.inst_without_structure_preserved = inst_without_structure_preserved
     self.unify = unify
     self.path_infer = path_infer
