@@ -310,13 +310,15 @@ def make(self: 'TCState', tctx: TypeCtx,
     #         mapping = {}
     #     return mapping, type
 
-    def inst_without_structure_preserved(type) -> t.Tuple[t.Dict[T, Var], T]:
+    def inst_without_structure_preserved(type,
+                                         rigid=False
+                                         ) -> t.Tuple[t.Dict[T, Var], T]:
         """
         When using this, there should be no free variable in the scope of forall!
         """
         if isinstance(type, Forall):
             mapping: t.Dict[T, Var] = {
-                b: InternalVar(is_rigid=False)
+                b: InternalVar(is_rigid=rigid)
                 for b in type.fresh_vars
             }
             type = type.poly_type
@@ -333,7 +335,7 @@ def make(self: 'TCState', tctx: TypeCtx,
             if occur_in(lhs, rhs):
                 raise exc.IllFormedType(" a = a -> b")
             if lhs.is_rigid:
-                if not isinstance(rhs, LeafTypes):
+                if not isinstance(rhs, Var):
                     raise exc.TypeMismatch(lhs, rhs)
             path_rhs, _ = path_infer(rhs)
             tctx[lhs] = (path_rhs or path_lhs), rhs
@@ -370,12 +372,6 @@ def make(self: 'TCState', tctx: TypeCtx,
             unify(lhs.witness, rhs.witness)
             unify(lhs.type, rhs.type)
             return
-
-        if isinstance(lhs, Implicit):
-            return unify(lhs.type, rhs)
-
-        if isinstance(rhs, Implicit):
-            return unify(lhs, rhs.type)
 
         if isinstance(lhs, Fresh) and isinstance(rhs, Fresh):
             if lhs.token is rhs.token and lhs.name == rhs.name:
